@@ -4,7 +4,28 @@ import type { McpServer } from '../config.js'
 
 export const VERSION = '0.1.0'
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Strip ANSI escape codes to get true visible length. */
+function visLen(s: string): number {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1B\[[0-9;]*m/g, '').length
+}
+
+/** Right-pad a pre-styled string to a visible width. */
+function padTo(s: string, width: number): string {
+  return s + ' '.repeat(Math.max(0, width - visLen(s)))
+}
+
 // ─── Banner ───────────────────────────────────────────────────────────────────
+//
+//  ╭────────────────────────────────────────────────────────╮
+//  │  ◆ aichat   v0.1.0                                     │
+//  │    anthropic · claude-3-5-sonnet                       │
+//  │    ● gmail  ● gcal                                     │
+//  ├────────────────────────────────────────────────────────┤
+//  │  /help  ·  /approve  ·  /exit                          │
+//  ╰────────────────────────────────────────────────────────╯
 
 export function printBanner(
   providerName: string,
@@ -12,110 +33,132 @@ export function printBanner(
   mcpServers: McpServer[] = []
 ): void {
   const modelShort = model.split('/').pop()!
-  const W = 54
+  const W = 56 // visible content width (between the two │ columns)
+  const BW = W // border dash count
 
-  console.log()
-  console.log(T.dim('  ╭' + '─'.repeat(W) + '╮'))
-  console.log(
-    T.dim('  │ ') +
-      T.brandBright.bold('✦  aichat') +
-      T.dim('  ·  ') +
-      T.muted('v' + VERSION) +
-      ' '.repeat(Math.max(0, W - 14 - VERSION.length)) +
-      T.dim(' │')
-  )
-  console.log(
-    T.dim('  │ ') +
-      T.muted('   ' + providerName.toLowerCase()) +
-      T.dim('  ·  ') +
-      T.white(modelShort) +
-      ' '.repeat(Math.max(0, W - 8 - providerName.length - modelShort.length)) +
-      T.dim(' │')
-  )
-  if (mcpServers.length > 0) {
-    const accountStr = mcpServers
-      .map((s) => T.success('● ') + T.white(s.name))
-      .join('  ')
-    const plainLen = mcpServers.reduce((n, s) => n + s.name.length + 2, 0)
-    console.log(
-      T.dim('  │ ') +
-        T.muted('   accounts: ') +
-        accountStr +
-        ' '.repeat(Math.max(0, W - 13 - plainLen)) +
-        T.dim(' │')
-    )
+  const row = (content: string) => {
+    const padded = padTo(' ' + content, W)
+    console.log(T.dim('  │') + padded + T.dim('│'))
   }
-  console.log(T.dim('  ╰' + '─'.repeat(W) + '╯'))
+
+  const sep = () => console.log(T.dim('  ├' + '─'.repeat(BW) + '┤'))
+
+  // Top border
   console.log()
-  console.log(
-    T.dim('  ') +
-      T.muted('type ') +
-      T.accent('/help') +
-      T.muted(' for commands  ·  ') +
-      T.accent('/approve') +
-      T.muted(' to toggle auto-run  ·  ') +
-      T.accent('/exit') +
-      T.muted(' to quit')
+  console.log(T.dim('  ╭' + '─'.repeat(BW) + '╮'))
+
+  // Identity: ◆ aichat  v0.1.0
+  row(T.brand.bold(' ◆ supernano') + T.dim('   ') + T.muted('v' + VERSION))
+
+  // Provider · model
+  row(
+    T.subtle('   ') +
+      T.muted(providerName.toLowerCase()) +
+      T.dim('  ·  ') +
+      T.white(modelShort)
   )
+
+  // MCP accounts (optional row)
+  if (mcpServers.length > 0) {
+    const dots = mcpServers
+      .map((s) => T.success('●') + ' ' + T.white(s.name))
+      .join(T.dim('  '))
+    row(T.subtle('   ') + dots)
+  }
+
+  sep()
+
+  // Shortcut hints row
+  const hint = (cmd: string, desc: string) =>
+    T.accent(cmd) + T.dim(' ') + T.subtle(desc)
+
+  const line = [
+    hint('/help', ''),
+    hint('/approve', ''),
+    hint('/exit', ''),
+  ].join(T.dim('  ·  '))
+
+  row(' ' + line)
+
+  console.log(T.dim('  ╰' + '─'.repeat(BW) + '╯'))
   console.log()
 }
 
 // ─── Help ─────────────────────────────────────────────────────────────────────
+//
+//  Renders a compact two-column table inside a titled box.
 
 export function printHelp(): void {
-  const row = (cmd: string, desc: string) =>
-    console.log('  ' + T.accent(cmd.padEnd(26)) + T.muted(desc))
+  const LABEL_W = 22
+  const W = 56
+  // const BW = W
 
-  console.log()
-  console.log(T.brandBright.bold('  Session'))
-  console.log(T.dim('  ' + '─'.repeat(56)))
+  const section = (title: string) => {
+    console.log()
+    console.log(T.boxTop(title, W + 4))
+  }
+
+  const row = (cmd: string, desc: string) => {
+    const label = padTo(
+      T.accent(cmd),
+      LABEL_W + (T.accent(cmd).length - cmd.length)
+    )
+    const padded = padTo(' ' + label + ' ' + T.muted(desc), W)
+    console.log(T.dim('  │') + padded + T.dim('│'))
+  }
+
+  const close = () => console.log(T.boxBottom(W + 2))
+
+  // ── Session ──────────────────────────────────────────────────────────────
+  section('session')
   ;(
     [
-      ['/help', 'Show this help'],
-      ['/clear', 'Clear conversation (saves to history first)'],
-      ['/retry', 'Re-send your last message'],
-      ['/compact', 'Summarise & compress the conversation'],
-      ['/save', 'Save session to history'],
-      ['/history', 'Show recent sessions'],
-      ['/copy', 'Re-print the last response'],
-      ['/exit  /quit', 'Quit'],
+      ['/help', 'show this help'],
+      ['/clear', 'clear conversation (saves history first)'],
+      ['/retry', 're-send your last message'],
+      ['/compact', 'summarise & compress the conversation'],
+      ['/save', 'save session to history'],
+      ['/history', 'show recent sessions'],
+      ['/copy', 're-print the last response'],
+      ['/exit  /quit', 'quit'],
     ] as [string, string][]
   ).forEach(([c, d]) => row(c, d))
+  close()
 
-  console.log()
-  console.log(T.brandBright.bold('  Config'))
-  console.log(T.dim('  ' + '─'.repeat(56)))
+  // ── Config ───────────────────────────────────────────────────────────────
+  section('config')
   ;(
     [
-      ['/setup', 'Re-run the interactive setup wizard'],
-      ['/provider [name]', 'Show or switch provider (anthropic / openrouter)'],
-      ['/model [id]', 'Show or switch model'],
-      ['/apikey <p> <key>', 'Save API key for a provider'],
-      ['/approve', 'Toggle auto-approve for non-sensitive tools'],
-      ['/system [text]', 'View or update the system prompt'],
-      ['/tokens', 'Show token usage for this session'],
-      ['/version', 'Show version'],
+      ['/setup', 're-run the interactive setup wizard'],
+      ['/provider [name]', 'show or switch provider'],
+      ['/model [id]', 'show or switch model'],
+      ['/apikey <p> <key>', 'save API key for a provider'],
+      ['/approve', 'toggle auto-approve for non-sensitive tools'],
+      ['/system [text]', 'view or update the system prompt'],
+      ['/tokens', 'show token usage for this session'],
+      ['/version', 'show version'],
     ] as [string, string][]
   ).forEach(([c, d]) => row(c, d))
+  close()
 
-  console.log()
-  console.log(T.brandBright.bold('  Tools & Memory'))
-  console.log(T.dim('  ' + '─'.repeat(56)))
+  // ── Tools & Memory ───────────────────────────────────────────────────────
+  section('tools & memory')
   ;(
     [
-      ['/tools', 'List all available tools'],
-      ['/accounts', 'List connected MCP accounts'],
-      ['/attach <file>', "Attach a file's contents to the conversation"],
-      ['/notes', 'Show all persistent memory notes'],
-      ['/forget <id>', 'Delete a memory note by ID'],
-      ['/gmail-auth', 'Connect your Gmail account (one-time OAuth setup)'],
-      ['/gmail-status', 'Check Gmail connection status'],
+      ['/tools', 'list all available tools'],
+      ['/accounts', 'list connected MCP accounts'],
+      ['/attach <file>', "attach a file's contents to the conversation"],
+      ['/notes', 'show all persistent memory notes'],
+      ['/forget <id>', 'delete a memory note by ID'],
+      ['/gmail-auth', 'connect Gmail account (one-time OAuth)'],
+      ['/gmail-status', 'check Gmail connection status'],
     ] as [string, string][]
   ).forEach(([c, d]) => row(c, d))
+  close()
 
+  // ── Example prompts ──────────────────────────────────────────────────────
   console.log()
-  console.log(T.brandBright.bold('  Example prompts'))
-  console.log(T.dim('  ' + '─'.repeat(56)))
+  console.log(T.boxTop('example prompts', W + 4))
   const examples = [
     'summarise ~/Documents/notes.md',
     'what emails did I get today?',
@@ -126,7 +169,11 @@ export function printHelp(): void {
     'remember that I prefer TypeScript over JavaScript',
     'run the tests in this repo and fix any failures',
   ]
-  examples.forEach((ex) => console.log(T.dim('  › ') + T.white(ex)))
+  examples.forEach((ex) => {
+    const padded = padTo(' ' + T.dim('›') + ' ' + T.white(ex), W)
+    console.log(T.dim('  │') + padded + T.dim('│'))
+  })
+  close()
   console.log()
 }
 
@@ -139,25 +186,36 @@ export function printTools(mcpServers: McpServer[] = []): void {
     'web_search',
     'save_memory',
   ])
+  const W = 56
+  const NAME_W = 22
+  const DESC_W = 26
 
+  // ── Local tools ──────────────────────────────────────────────────────────
   console.log()
-  console.log(T.brandBright.bold('  Local Tools'))
-  console.log(T.dim('  ' + '─'.repeat(56)))
+  console.log(T.boxTop('local tools', W + 4))
+
   for (const t of TOOLS) {
     const auto = autoSet.has(t.name)
-    console.log(
-      '  ' +
-        T.tool(t.name.padEnd(20)) +
-        T.muted(((t.description ?? '').slice(0, 44) + '…').padEnd(46)) +
-        (auto ? T.success('✓ auto') : T.warn('⚠ confirm'))
+    const nameCol = padTo(
+      T.tool(t.name),
+      NAME_W + (T.tool(t.name).length - t.name.length)
     )
+    const descRaw = (t.description ?? '').slice(0, DESC_W - 1)
+    const descCol = padTo(
+      T.muted(descRaw),
+      DESC_W + (T.muted(descRaw).length - descRaw.length)
+    )
+    const badge = auto
+      ? T.success('✓') + ' ' + T.dim('auto   ')
+      : T.warn('⚠') + ' ' + T.dim('confirm')
+    const padded = padTo(' ' + nameCol + ' ' + descCol + ' ' + badge, W)
+    console.log(T.dim('  │') + padded + T.dim('│'))
   }
 
-  if (mcpServers.length > 0) {
-    console.log()
-    console.log(T.brandBright.bold('  MCP Account Tools'))
-    console.log(T.dim('  ' + '─'.repeat(56)))
+  console.log(T.boxBottom(W + 2))
 
+  // ── MCP account tools ────────────────────────────────────────────────────
+  if (mcpServers.length > 0) {
     const accountTools: Record<string, string[]> = {
       gmail: [
         'search_emails',
@@ -178,21 +236,40 @@ export function printTools(mcpServers: McpServer[] = []): void {
     }
 
     for (const s of mcpServers) {
-      console.log('  ' + T.success('● ') + T.white(s.name))
+      console.log()
+      console.log(T.boxTop(T.success('●') + ' ' + s.name, W + 4))
+
       for (const t of accountTools[s.name] ?? [
         '(dynamic — resolved at runtime)',
       ]) {
         const isWrite = !['search_', 'list_', 'get_'].some((p) =>
           t.startsWith(p)
         )
-        console.log(
-          '    ' +
-            T.brandBright(t.padEnd(30)) +
-            (isWrite ? T.warn('⚠ confirm') : T.success('✓ auto'))
+        const nameCol = padTo(T.tool(t), NAME_W + (T.tool(t).length - t.length))
+        const badge = isWrite
+          ? T.warn('⚠') + ' ' + T.dim('confirm')
+          : T.success('✓') + ' ' + T.dim('auto   ')
+        const padded = padTo(
+          ' ' + nameCol + ' ' + ' '.repeat(DESC_W) + ' ' + badge,
+          W
         )
+        console.log(T.dim('  │') + padded + T.dim('│'))
       }
+
+      console.log(T.boxBottom(W + 2))
     }
   }
 
   console.log()
 }
+
+// // ─── Helpers (re-export for use in banner) ────────────────────────────────────
+
+// function visLen(s: string): number {
+//   // eslint-disable-next-line no-control-regex
+//   return s.replace(/\x1B\[[0-9;]*m/g, '').length
+// }
+
+// function padTo(s: string, width: number): string {
+//   return s + ' '.repeat(Math.max(0, width - visLen(s)))
+// }

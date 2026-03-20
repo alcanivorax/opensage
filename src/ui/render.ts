@@ -4,18 +4,66 @@ import { T } from './theme.js'
 
 // ─── Box width constants ──────────────────────────────────────────────────────
 
-const BOX_W = 66 // width of full-width code box border
+const BOX_W = 66 // border dash count for full-width code fence
 const INNER_W = 44 // space for language label filler
+const LNUM_W = 4 // line-number column width
+
+// ─── Inline tool-call chrome ──────────────────────────────────────────────────
+//
+//  Used by the chat loop to render tool invocations before the model responds.
+//
+//    ┄ read_file  ~/Documents/notes.md  ✓ auto
+//    ┄ bash       echo "hello"          ⚠ confirm
+
+export function printToolCall(
+  name: string,
+  preview: string,
+  needsConfirm: boolean
+): void {
+  const badge = needsConfirm
+    ? T.warn('⚠') + ' ' + T.dim('confirm')
+    : T.success('✓') + ' ' + T.dim('auto   ')
+  console.log(
+    T.dim('  ┄ ') +
+      T.tool(name.padEnd(14)) +
+      T.muted(preview.slice(0, 38).padEnd(40)) +
+      badge
+  )
+}
+
+export function printToolResult(
+  name: string,
+  ok: boolean,
+  summary: string
+): void {
+  const icon = ok ? T.success('✔') : T.error('✘')
+  console.log(
+    T.dim('  └ ') +
+      icon +
+      ' ' +
+      T.dim(name.padEnd(14)) +
+      T.muted(summary.slice(0, 48))
+  )
+}
+
+// ─── Thinking / status spinner line ───────────────────────────────────────────
+
+export function printThinking(label = 'thinking…'): void {
+  process.stdout.write(T.dim('  ◌ ') + T.muted(label))
+}
+
+export function clearLine(): void {
+  process.stdout.write('\r\x1B[K')
+}
 
 // ─── StreamRenderer ───────────────────────────────────────────────────────────
 //
 //  Renders markdown incrementally as text streams in, line-by-line.
-//  Feed raw delta strings; the renderer buffers until it sees a newline,
-//  then emits the formatted line immediately.
+//  Feed raw delta strings via .feed(); call .flush() once the stream ends.
 //
-//  Code blocks are rendered progressively (no syntax highlighting during
-//  streaming — plain cyan), so the user sees code as it appears.
-//  Call flush() at the end to emit any trailing content.
+//  Code blocks stream progressively in teal (no syntax highlight during
+//  streaming — preserves the live feel).  Static /copy re-renders use
+//  renderMarkdown() which applies full syntax highlighting.
 
 export class StreamRenderer {
   private buf = ''
@@ -38,7 +86,7 @@ export class StreamRenderer {
   }
 
   /**
-   * Flush any remaining buffered content (call once after the stream ends).
+   * Flush remaining buffered content (call once after the stream ends).
    * Also closes any unclosed code block.
    */
   flush(): string {
@@ -60,29 +108,32 @@ export class StreamRenderer {
   // ── Private helpers ──────────────────────────────────────────────────────────
 
   private _processLine(line: string): string {
-    // ── Fenced code block fence ──────────────────────────────────────────────
+    // Fenced code block fence ───────────────────────────────────────────────
     if (line.startsWith('```')) {
       if (!this.inCode) {
         this.inCode = true
         this.codeLang = line.slice(3).trim()
         const lang = this.codeLang || 'code'
         const filler = '─'.repeat(Math.max(0, INNER_W - lang.length))
-        return '\n' + T.dim('  ╭─ ') + T.muted(lang) + T.dim('  ' + filler)
+        return (
+          '\n' +
+          T.dim('  ╭─ ') +
+          T.muted(lang) +
+          T.dim('  ' + filler + '─'.repeat(BOX_W - INNER_W - 5) + '╮')
+        )
       } else {
         this.inCode = false
         this.codeLang = ''
-        return T.dim('  ╰' + '─'.repeat(BOX_W))
+        return T.dim('  ╰' + '─'.repeat(BOX_W) + '╯')
       }
     }
 
-    // ── Inside code block ────────────────────────────────────────────────────
+    // Inside code block ──────────────────────────────────────────────────────
     if (this.inCode) {
-      // Stream progressively in cyan — no full syntax highlighting here
-      // (preserves the live feel; use renderMarkdown for the static /copy)
-      return T.dim('  │ ') + chalk.cyan(line)
+      return T.dim('  │ ') + T.tool(line)
     }
 
-    // ── Normal prose line ────────────────────────────────────────────────────
+    // Normal prose line ──────────────────────────────────────────────────────
     return this._renderProse(line)
   }
 
@@ -102,11 +153,20 @@ export class StreamRenderer {
     // Horizontal rule
     if (/^---+$/.test(line.trim())) return T.dim('  ' + '─'.repeat(54))
 
-    // Unordered list  (-, *, spaces before)
+    // Task list  (- [ ] / - [x])
+    const taskMatch = line.match(/^(\s*)- \[([ x])\] (.+)$/)
+    if (taskMatch) {
+      const done = taskMatch[2] === 'x'
+      const box = done ? T.success('☑') : T.dim('☐')
+      const text = done ? T.muted(taskMatch[3]) : this._inline(taskMatch[3])
+      return '  ' + box + ' ' + text
+    }
+
+    // Unordered list
     const ulMatch = line.match(/^(\s*)[-*] (.+)$/)
     if (ulMatch) {
-      const pad = ulMatch[1].length > 0 ? '    ' : '  '
-      return pad + T.accent('▸ ') + this._inline(ulMatch[2])
+      const indent = ulMatch[1].length > 0 ? '    ' : '  '
+      return indent + T.accent('▸ ') + this._inline(ulMatch[2])
     }
 
     // Ordered list
@@ -117,31 +177,34 @@ export class StreamRenderer {
     // Empty line
     if (!line.trim()) return ''
 
-    // Normal text
     return '  ' + this._inline(line)
   }
 
-  /** Apply inline styles: code, bold, italic */
+  /** Apply inline styles: code, bold, italic, strikethrough */
   private _inline(text: string): string {
     return (
       text
-        // Inline code first (protect its contents from further substitutions)
+        // Inline code (protect from further substitution)
         .replace(/`([^`\n]+)`/g, (_, c) =>
           chalk.bgHex('#1E293B')(T.accent(` ${c} `))
         )
+        // Bold
         .replace(/\*\*(.+?)\*\*/g, (_, s) => chalk.bold.white(s))
+        // Italic
         .replace(/\*(.+?)\*/g, (_, s) => chalk.italic.hex('#CBD5E1')(s))
+        // Strikethrough
+        .replace(/~~(.+?)~~/g, (_, s) => chalk.strikethrough(T.muted(s)))
     )
   }
 }
 
 // ─── Static full-document renderer ───────────────────────────────────────────
 //
-//  Used for pipe mode output and /copy re-render.
-//  Applies proper syntax highlighting to code blocks.
+//  Used for pipe-mode output and /copy re-render.
+//  Applies proper syntax highlighting and line numbers to code blocks.
 
 export function renderMarkdown(text: string): string {
-  // ── Fenced code blocks (with syntax highlighting) ─────────────────────────
+  // ── Fenced code blocks (with syntax highlighting + line numbers) ──────────
   text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (_match, lang, code) => {
     const language = lang || 'plaintext'
     let highlighted: string
@@ -152,23 +215,31 @@ export function renderMarkdown(text: string): string {
         ignoreIllegals: true,
       })
     } catch {
-      highlighted = chalk.cyan(code.trimEnd())
+      highlighted = T.tool(code.trimEnd())
     }
 
-    const numbered = highlighted
-      .split('\n')
+    const lines = highlighted.split('\n')
+    const totalLines = lines.length
+    const lnWidth = Math.max(LNUM_W, String(totalLines).length)
+
+    const numbered = lines
       .map(
-        (l, i) => T.dim('  │ ') + T.subtle(String(i + 1).padStart(3) + '  ') + l
+        (l, i) =>
+          T.dim('  │ ') +
+          T.subtle(String(i + 1).padStart(lnWidth)) +
+          T.dim('  ') +
+          l
       )
       .join('\n')
 
     const langLabel = language
     const filler = '─'.repeat(Math.max(0, INNER_W - langLabel.length))
+    const rightFill = '─'.repeat(BOX_W - INNER_W - 5)
 
     return (
-      `\n${T.dim('  ╭─ ')}${T.muted(langLabel)}${T.dim('  ' + filler)}\n` +
+      `\n${T.dim('  ╭─ ')}${T.muted(langLabel)}${T.dim('  ' + filler + rightFill + '╮')}\n` +
       `${numbered}\n` +
-      `${T.dim('  ╰' + '─'.repeat(BOX_W))}\n`
+      `${T.dim('  ╰' + '─'.repeat(BOX_W) + '╯')}\n`
     )
   })
 
@@ -177,9 +248,10 @@ export function renderMarkdown(text: string): string {
     chalk.bgHex('#1E293B')(T.accent(` ${c} `))
   )
 
-  // ── Bold / italic ─────────────────────────────────────────────────────────
+  // ── Bold / italic / strikethrough ─────────────────────────────────────────
   text = text.replace(/\*\*(.+?)\*\*/g, (_, t) => chalk.bold.white(t))
   text = text.replace(/\*(.+?)\*/g, (_, t) => chalk.italic.hex('#CBD5E1')(t))
+  text = text.replace(/~~(.+?)~~/g, (_, t) => chalk.strikethrough(T.muted(t)))
 
   // ── Headers ───────────────────────────────────────────────────────────────
   text = text.replace(
@@ -197,6 +269,16 @@ export function renderMarkdown(text: string): string {
 
   // ── Blockquote ────────────────────────────────────────────────────────────
   text = text.replace(/^> (.+)$/gm, (_, t) => T.dim('  ▌ ') + T.muted(t))
+
+  // ── Task lists ────────────────────────────────────────────────────────────
+  text = text.replace(
+    /^- \[x\] (.+)$/gim,
+    (_, t) => '  ' + T.success('☑') + ' ' + T.muted(t)
+  )
+  text = text.replace(
+    /^- \[ \] (.+)$/gim,
+    (_, t) => '  ' + T.dim('☐') + ' ' + T.white(t)
+  )
 
   // ── Lists ─────────────────────────────────────────────────────────────────
   text = text.replace(
