@@ -123,7 +123,7 @@ export async function downloadFile(input: {
   try {
     response = await fetch(url, {
       headers: {
-        'User-Agent': 'aichat/4.1 personal-assistant-downloader',
+        'User-Agent': 'opensage/4.1 personal-assistant-downloader',
       },
       signal: AbortSignal.timeout(5 * 60 * 1000), // 5-minute timeout
       redirect: 'follow',

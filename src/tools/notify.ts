@@ -1,115 +1,119 @@
-import * as child_process from "child_process";
-import * as os from "os";
-import type Anthropic from "@anthropic-ai/sdk";
+import * as child_process from 'child_process'
+import type Anthropic from '@anthropic-ai/sdk'
 
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
 export const notifyToolDef: Anthropic.Tool = {
-  name: "notify",
+  name: 'notify',
   description:
-    "Send a desktop notification to the user. " +
-    "Use this to alert the user when a long-running task completes, " +
-    "when something important is found, or when input is needed. " +
-    "Works on macOS, Linux (notify-send / libnotify), and Windows.",
+    'Send a desktop notification to the user. ' +
+    'Use this to alert the user when a long-running task completes, ' +
+    'when something important is found, or when input is needed. ' +
+    'Works on macOS, Linux (notify-send / libnotify), and Windows.',
   input_schema: {
-    type: "object" as const,
+    type: 'object' as const,
     properties: {
       title: {
-        type: "string",
-        description: "Notification title (short, 1–6 words).",
+        type: 'string',
+        description: 'Notification title (short, 1–6 words).',
       },
       message: {
-        type: "string",
-        description: "Notification body text.",
+        type: 'string',
+        description: 'Notification body text.',
       },
       urgency: {
-        type: "string",
+        type: 'string',
         description:
           "Urgency level: 'low', 'normal' (default), or 'critical'. " +
-          "Critical notifications stay on screen until dismissed (Linux only).",
+          'Critical notifications stay on screen until dismissed (Linux only).',
       },
     },
-    required: ["title", "message"],
+    required: ['title', 'message'],
   },
-};
+}
 
 // ─── Implementation ───────────────────────────────────────────────────────────
 
 function exec(cmd: string): Promise<string> {
   return new Promise((resolve) => {
     child_process.exec(cmd, { timeout: 8_000 }, (_err, stdout, stderr) => {
-      resolve((stdout || stderr || "").trim());
-    });
-  });
+      resolve((stdout || stderr || '').trim())
+    })
+  })
 }
 
 /** Escape a string for safe embedding in a shell double-quoted argument. */
 function shellEscape(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/`/g, "\\`");
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/`/g, '\\`')
 }
 
 export async function notify(input: {
-  title: string;
-  message: string;
-  urgency?: string;
+  title: string
+  message: string
+  urgency?: string
 }): Promise<string> {
-  const title = (input.title ?? "aichat").slice(0, 100);
-  const message = (input.message ?? "").slice(0, 500);
+  const title = (input.title ?? 'opensage').slice(0, 100)
+  const message = (input.message ?? '').slice(0, 500)
   const urgency =
-    input.urgency && ["low", "normal", "critical"].includes(input.urgency)
+    input.urgency && ['low', 'normal', 'critical'].includes(input.urgency)
       ? input.urgency
-      : "normal";
+      : 'normal'
 
-  const p = process.platform;
+  const p = process.platform
 
   // ── macOS ──────────────────────────────────────────────────────────────────
-  if (p === "darwin") {
-    const t = shellEscape(title);
-    const m = shellEscape(message);
+  if (p === 'darwin') {
+    const t = shellEscape(title)
+    const m = shellEscape(message)
     // osascript display notification is always available on macOS
-    const script = `display notification "${m}" with title "${t}"`;
-    await exec(`osascript -e '${script}'`);
-    return `✓ Notification sent: "${title}"`;
+    const script = `display notification "${m}" with title "${t}"`
+    await exec(`osascript -e '${script}'`)
+    return `✓ Notification sent: "${title}"`
   }
 
   // ── Linux ──────────────────────────────────────────────────────────────────
-  if (p === "linux") {
-    const t = shellEscape(title);
-    const m = shellEscape(message);
+  if (p === 'linux') {
+    const t = shellEscape(title)
+    const m = shellEscape(message)
 
     // Try notify-send (libnotify — works on GNOME, KDE, XFCE, etc.)
     const urgencyFlag =
-      urgency === "critical"
-        ? "-u critical"
-        : urgency === "low"
-          ? "-u low"
-          : "-u normal";
+      urgency === 'critical'
+        ? '-u critical'
+        : urgency === 'low'
+          ? '-u low'
+          : '-u normal'
 
     const result = await exec(
-      `notify-send ${urgencyFlag} -a "aichat" "${t}" "${m}" 2>/dev/null`
-    );
+      `notify-send ${urgencyFlag} -a "opensage" "${t}" "${m}" 2>/dev/null`
+    )
 
-    if (!result.toLowerCase().includes("error") && !result.includes("not found")) {
-      return `✓ Notification sent: "${title}"`;
+    if (
+      !result.toLowerCase().includes('error') &&
+      !result.includes('not found')
+    ) {
+      return `✓ Notification sent: "${title}"`
     }
 
     // Fallback: kdialog (KDE without libnotify)
     const kdResult = await exec(
       `kdialog --passivepopup "${m}" 5 --title "${t}" 2>/dev/null`
-    );
-    if (!kdResult.toLowerCase().includes("not found")) {
-      return `✓ Notification sent via kdialog: "${title}"`;
+    )
+    if (!kdResult.toLowerCase().includes('not found')) {
+      return `✓ Notification sent via kdialog: "${title}"`
     }
 
     // Last resort: xmessage (always available if X11 is running)
-    await exec(`xmessage -timeout 8 "${t}: ${shellEscape(message)}" 2>/dev/null &`);
-    return `✓ Notification sent via xmessage: "${title}"`;
+    await exec(
+      `xmessage -timeout 8 "${t}: ${shellEscape(message)}" 2>/dev/null &`
+    )
+    return `✓ Notification sent via xmessage: "${title}"`
   }
 
   // ── Windows ────────────────────────────────────────────────────────────────
-  if (p === "win32") {
-    const t = title.replace(/'/g, "''");
-    const m = message.replace(/'/g, "''");
+  if (p === 'win32') {
+    const t = title.replace(/'/g, "''")
+    const m = message.replace(/'/g, "''")
 
     // PowerShell toast notification (Windows 10+)
     const ps = `
@@ -122,13 +126,13 @@ $notify.Visible = $true;
 $notify.ShowBalloonTip(5000);
 Start-Sleep -Seconds 1;
 $notify.Dispose()
-`.trim();
+`.trim()
 
-    await exec(`powershell -NoProfile -Command "${ps.replace(/\n/g, "; ")}"`);
-    return `✓ Notification sent: "${title}"`;
+    await exec(`powershell -NoProfile -Command "${ps.replace(/\n/g, '; ')}"`)
+    return `✓ Notification sent: "${title}"`
   }
 
-  return `Error: Unsupported platform (${p})`;
+  return `Error: Unsupported platform (${p})`
 }
 
 // ─── Helper: notify after an async operation ─────────────────────────────────
@@ -141,17 +145,17 @@ export async function notifyAfter<T>(
   fn: () => Promise<T>
 ): Promise<T> {
   try {
-    const result = await fn();
-    await notify({ title: "aichat", message: `✓ Done: ${label}` }).catch(
+    const result = await fn()
+    await notify({ title: 'opensage', message: `✓ Done: ${label}` }).catch(
       () => {}
-    );
-    return result;
+    )
+    return result
   } catch (err) {
     await notify({
-      title: "aichat — Error",
+      title: 'opensage — Error',
       message: `✗ ${label}: ${err instanceof Error ? err.message : String(err)}`,
-      urgency: "critical",
-    }).catch(() => {});
-    throw err;
+      urgency: 'critical',
+    }).catch(() => {})
+    throw err
   }
 }

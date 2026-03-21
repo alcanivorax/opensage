@@ -1,20 +1,20 @@
 import * as readline from 'readline'
-import ora from 'ora'
-import chalk from 'chalk'
 import { T } from './ui/theme.js'
-import { StreamRenderer } from './ui/render.js'
+import {
+  StreamRenderer,
+  printConfirmDialog,
+  printTokenFooter,
+} from './ui/render.js'
+import { printAssistantHeader } from './ui/banner.js'
 import {
   SAFE_TOOLS,
-  COMPACT_TOOLS,
   executeTool,
   toolLabel,
   compactSummary,
+  COMPACT_TOOLS,
 } from './tools/index.js'
 
-// ─── Tool display helpers ─────────────────────────────────────────────────────
-
-/** Verb shown in the spinner while the tool runs. */
-function toolActionText(name: string): string {
+function toolAction(name: string): string {
   switch (name) {
     case 'web_search':
       return 'searching…'
@@ -22,26 +22,16 @@ function toolActionText(name: string): string {
       return 'fetching…'
     case 'read_file':
       return 'reading…'
-    case 'gmail_list':
-      return 'fetching emails…'
-    case 'gmail_read':
-      return 'reading email…'
-    case 'gmail_send':
-      return 'sending email…'
-    case 'gmail_draft':
-      return 'saving draft…'
-    case 'download_file':
-      return 'downloading…'
-    case 'get_system_info':
-      return 'checking system…'
-    case 'read_clipboard':
-      return 'reading clipboard…'
-    case 'write_clipboard':
-      return 'copying to clipboard…'
-    case 'open_path':
-      return 'opening…'
+    case 'write_file':
+      return 'writing…'
+    case 'run_command':
+      return 'running…'
     case 'save_memory':
       return 'saving…'
+    case 'gmail_send':
+      return 'sending email…'
+    case 'gmail_list':
+      return 'fetching emails…'
     default:
       return 'running…'
   }
@@ -51,15 +41,11 @@ import { TOOLS as LOCAL_TOOLS } from './tools/index.js'
 import type { Provider, ToolCall, ToolDefinition } from './providers/index.js'
 import type { Config, Message } from './config.js'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 export interface AgentResult {
   lastText: string
   inputTokens: number
   outputTokens: number
 }
-
-// ─── Tool definitions converter ───────────────────────────────────────────────
 
 function toToolDefs(): ToolDefinition[] {
   return LOCAL_TOOLS.map((t) => ({
@@ -69,8 +55,6 @@ function toToolDefs(): ToolDefinition[] {
   }))
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function isSensitive(name: string, sensitiveTools: string[]): boolean {
   return sensitiveTools.some((s) => name === s || name.startsWith(s))
 }
@@ -78,20 +62,6 @@ function isSensitive(name: string, sensitiveTools: string[]): boolean {
 function isAutoApproved(name: string): boolean {
   return SAFE_TOOLS.has(name)
 }
-
-function fmtInput(input: Record<string, unknown>): string {
-  return Object.entries(input)
-    .map(([k, v]) => {
-      const val = typeof v === 'string' ? v : JSON.stringify(v, null, 2)
-      const lines = val.split('\n')
-      return lines.length === 1
-        ? `${k}: ${val}`
-        : `${k}:\n` + lines.map((l) => `  ${l}`).join('\n')
-    })
-    .join('\n')
-}
-
-// ─── Confirm prompt ───────────────────────────────────────────────────────────
 
 async function confirmTool(
   rl: readline.Interface,
@@ -103,114 +73,65 @@ async function confirmTool(
   if (autoApprove && !isSensitive(call.name, sensitiveTools)) return true
 
   const { name, input } = call
-  const SEP = T.dim('  ┌' + '─'.repeat(52))
-  const END = T.dim('  └' + '─'.repeat(52))
 
-  console.log()
-
+  // Email tools
   if (
     ['send_email', 'create_draft', 'reply_to_email', 'forward_email'].includes(
       name
     )
   ) {
-    console.log(T.warn(`  ✉  ${name.replace(/_/g, ' ').toUpperCase()}`))
-    console.log(SEP)
-    if (input['to'])
-      console.log(
-        T.dim('  │  ') + T.muted('To:      ') + T.white(String(input['to']))
-      )
-    if (input['cc'])
-      console.log(
-        T.dim('  │  ') + T.muted('Cc:      ') + T.white(String(input['cc']))
-      )
-    if (input['subject'])
-      console.log(
-        T.dim('  │  ') +
-          T.muted('Subject: ') +
-          T.white(String(input['subject']))
-      )
+    const details: Record<string, string> = {}
+    if (input['to']) details['To'] = String(input['to'])
+    if (input['subject']) details['Subject'] = String(input['subject'])
     const body = String(input['body'] ?? input['message'] ?? '')
-    if (body) {
-      console.log(T.dim('  │  ') + T.muted('Body:'))
-      body
-        .split('\n')
-        .slice(0, 12)
-        .forEach((l) => console.log(T.dim('  │    ') + T.white(l)))
-      const extra = body.split('\n').length - 12
-      if (extra > 0)
-        console.log(T.dim('  │    ') + T.muted(`… +${extra} more lines`))
-    }
-    console.log(END)
-  } else if (['create_event', 'update_event'].includes(name)) {
-    console.log(T.warn(`  📅  ${name.replace(/_/g, ' ').toUpperCase()}`))
-    console.log(SEP)
-    const title = input['title'] ?? input['summary']
-    if (title)
-      console.log(
-        T.dim('  │  ') + T.muted('Title:    ') + T.white(String(title))
-      )
-    if (input['start'])
-      console.log(
-        T.dim('  │  ') + T.muted('Start:    ') + T.white(String(input['start']))
-      )
-    if (input['end'])
-      console.log(
-        T.dim('  │  ') + T.muted('End:      ') + T.white(String(input['end']))
-      )
-    if (input['attendees'])
-      console.log(
-        T.dim('  │  ') +
-          T.muted('Guests:   ') +
-          T.white(JSON.stringify(input['attendees']))
-      )
-    if (input['location'])
-      console.log(
-        T.dim('  │  ') +
-          T.muted('Location: ') +
-          T.white(String(input['location']))
-      )
-    console.log(END)
-  } else if (name === 'run_command') {
-    console.log(T.tool('  ⚡ run_command'))
-    console.log(SEP)
-    console.log(T.dim('  │  ') + chalk.yellow(String(input['command'] ?? '')))
-    if (input['cwd'])
-      console.log(T.dim('  │  ') + T.muted('cwd: ' + String(input['cwd'])))
-    console.log(END)
-  } else if (name === 'write_file') {
-    console.log(
-      T.tool('  ⚡ write_file') +
-        T.dim('  →  ') +
-        T.accent(String(input['path'] ?? ''))
+    if (body)
+      details['Body'] =
+        body.split('\n')[0].slice(0, 50) + (body.includes('\n') ? '…' : '')
+    printConfirmDialog(name.replace(/_/g, ' '), details, true)
+  }
+  // Calendar tools
+  else if (['create_event', 'update_event'].includes(name)) {
+    const details: Record<string, string> = {}
+    if (input['title'] || input['summary'])
+      details['Title'] = String(input['title'] ?? input['summary'])
+    if (input['start']) details['Start'] = String(input['start'])
+    printConfirmDialog(name.replace(/_/g, ' '), details, false)
+  }
+  // File write
+  else if (name === 'write_file') {
+    printConfirmDialog(
+      'write_file',
+      { File: String(input['path'] ?? '') },
+      false
     )
-    console.log(SEP)
-    const lines = String(input['content'] ?? '').split('\n')
-    lines.slice(0, 6).forEach((l) => console.log(T.dim('  │  ') + T.muted(l)))
-    if (lines.length > 6)
-      console.log(T.dim('  │  ') + T.muted(`… +${lines.length - 6} more lines`))
-    console.log(END)
-  } else {
-    console.log(T.tool(`  ⚡ ${name}`))
-    console.log(SEP)
-    fmtInput(input)
-      .split('\n')
-      .slice(0, 10)
-      .forEach((l) => console.log(T.dim('  │  ') + T.muted(l)))
-    console.log(END)
+  }
+  // Command
+  else if (name === 'run_command') {
+    printConfirmDialog(
+      'run_command',
+      { Command: String(input['command'] ?? '').slice(0, 60) },
+      true
+    )
+  }
+  // Generic
+  else {
+    const preview = toolLabel(name, input)
+    printConfirmDialog(
+      name,
+      { Preview: preview.slice(0, 80) },
+      isSensitive(name, sensitiveTools)
+    )
   }
 
   return new Promise((resolve) => {
     rl.question(
-      T.warn('  Proceed? ') + T.muted('[y / n / a = always]  ') + T.dim('› '),
+      T.warn('proceed?') + ' ' + T.muted('[y/n] ') + T.dim('› '),
       (ans) => {
-        const a = ans.trim().toLowerCase()
-        resolve(['y', 'yes', '', 'a'].includes(a))
+        resolve(['y', 'yes', ''].includes(ans.trim().toLowerCase()))
       }
     )
   })
 }
-
-// ─── Tool result display ──────────────────────────────────────────────────────
 
 function printToolResult(
   toolName: string,
@@ -220,54 +141,45 @@ function printToolResult(
   const t = elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`
 
   if (COMPACT_TOOLS.has(toolName)) {
-    // Single status line — result is internal data for the AI, not the user
     const summary = compactSummary(toolName, result)
     const isError =
-      result.startsWith('Error:') ||
-      result.startsWith('Fetch error:') ||
-      result.startsWith('Search error:')
+      result.startsWith('Error:') || result.startsWith('Fetch error:')
+    const icon = isError ? T.cross : T.check
+    const text = isError ? T.error(summary) : T.success(summary)
     console.log(
-      T.dim('  ↳ ') +
-        (isError
-          ? T.error('✗  ' + summary)
-          : T.success('✓  ') + T.muted(summary)) +
-        T.dim('  ·  ') +
+      T.dim('  │ ') +
+        icon +
+        ' ' +
+        T.tool(toolName) +
+        T.dim(' · ') +
+        text +
+        T.dim(' · ') +
         T.muted(t)
     )
     return
   }
 
-  // Full box for exec / write tools
   const lines = result.split('\n')
-  console.log(T.dim('  ┌─ result  ') + T.success('✓ ') + T.muted(t))
-  lines
-    .slice(0, 10)
-    .forEach((l) => console.log(T.dim('  │  ') + T.muted(l.slice(0, 120))))
-  if (lines.length > 10)
-    console.log(T.dim('  │  ') + T.muted(`… +${lines.length - 10} more lines`))
-  console.log(T.dim('  └' + '─'.repeat(52)))
-}
+  const isError = result.startsWith('Error:')
 
-// ─── Token footer ─────────────────────────────────────────────────────────────
-
-function printTurnFooter(
-  inputTokens: number,
-  outputTokens: number,
-  providerName: string
-): void {
-  const fmt = (n: number) =>
-    n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+  console.log(T.dim('  │'))
+  console.log(T.dim('  ├' + '─'.repeat(60) + '┤'))
   console.log(
-    '\n' +
-      T.dim('  ─── ') +
-      T.muted(`${fmt(inputTokens)} in  ·  ${fmt(outputTokens)} out`) +
-      T.dim('  ·  ') +
-      T.muted(providerName) +
-      T.dim('  ' + '─'.repeat(20))
+    T.dim('  │ ') +
+      T.muted('result ') +
+      (isError ? T.error('✗') : T.success('✓')) +
+      ' ' +
+      T.muted(t)
   )
-}
 
-// ─── Agent loop ───────────────────────────────────────────────────────────────
+  for (const l of lines.slice(0, 6)) {
+    console.log(T.dim('  │ ') + T.muted(l.slice(0, 80)))
+  }
+  if (lines.length > 6) {
+    console.log(T.dim('  │ ') + T.muted(`… +${lines.length - 6} more`))
+  }
+  console.log(T.dim('  └' + '─'.repeat(60) + '┘'))
+}
 
 const MAX_ITERATIONS = 20
 
@@ -285,29 +197,44 @@ export async function runAgentLoop(
   const mcpServers = provider.supportsMcp ? (config.mcpServers ?? []) : []
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    // ── AI turn header ───────────────────────────────────────────────────────
-    const modelShort = config.model.split('/').pop()!
-    process.stdout.write(
-      '\n  ' + T.brandBright('✦ ') + T.muted(modelShort) + '\n\n'
-    )
+    printAssistantHeader(config.model)
 
-    // ── State for this turn ──────────────────────────────────────────────────
     let currentText = ''
     const toolCalls: ToolCall[] = []
-    let firstToken = true // has any output been written yet?
+    let firstToken = true
     let lastWasNewline = false
 
     const renderer = new StreamRenderer()
 
-    // ── Spinner while waiting for the first token ────────────────────────────
-    const spinner = ora({
-      spinner: 'dots2',
-      color: 'gray',
-      prefixText: '  ',
-      text: T.dim('thinking…'),
-    }).start()
+    // Thinking indicator
+    const frames = ['◌', '◐', '◓', '◒']
+    let frameIdx = 0
+    let thinkingInterval: NodeJS.Timeout | null = null
 
-    // ── Stream loop ──────────────────────────────────────────────────────────
+    const startThinking = () => {
+      process.stdout.write('  ' + T.thinking('thinking…') + ' ')
+      thinkingInterval = setInterval(() => {
+        process.stdout.write(
+          '\r  ' +
+            T.dim(frames[frameIdx++ % 4]) +
+            ' ' +
+            T.muted('thinking…') +
+            ' '
+        )
+      }, 120)
+    }
+
+    const stopThinking = () => {
+      if (thinkingInterval) {
+        clearInterval(thinkingInterval)
+        thinkingInterval = null
+      }
+      process.stdout.write('\r\x1B[K')
+    }
+
+    startThinking()
+
+    // Stream loop
     for await (const event of provider.stream({
       model: config.model,
       maxTokens: config.maxTokens,
@@ -319,28 +246,23 @@ export async function runAgentLoop(
       switch (event.type) {
         case 'text_delta': {
           if (firstToken) {
-            spinner.stop()
-            process.stdout.write('\r\x1b[2K') // clear spinner line
+            stopThinking()
             firstToken = false
           }
-
           const rendered = renderer.feed(event.text)
           if (rendered) {
             process.stdout.write(rendered)
             lastWasNewline = rendered.endsWith('\n')
           }
-
           currentText += event.text
           break
         }
 
         case 'tool_start': {
           if (firstToken) {
-            spinner.stop()
-            process.stdout.write('\r\x1b[2K')
+            stopThinking()
             firstToken = false
           }
-          // Flush any buffered text and ensure we're on a new line
           const flushed = renderer.flush()
           if (flushed) {
             process.stdout.write(flushed)
@@ -365,9 +287,7 @@ export async function runAgentLoop(
 
         case 'end': {
           if (firstToken) {
-            // The model responded with only tool calls and no text
-            spinner.stop()
-            process.stdout.write('\r\x1b[2K')
+            stopThinking()
             firstToken = false
           }
           inputTokens += event.inputTokens
@@ -377,7 +297,7 @@ export async function runAgentLoop(
       }
     }
 
-    // Flush any remaining buffered content from the renderer
+    stopThinking()
     const finalFlush = renderer.flush()
     if (finalFlush) {
       process.stdout.write(finalFlush)
@@ -389,7 +309,7 @@ export async function runAgentLoop(
       if (!lastWasNewline) process.stdout.write('\n')
     }
 
-    // ── Build assistant history entry ────────────────────────────────────────
+    // Build message
     const assistantContent: unknown[] = []
     if (currentText) {
       assistantContent.push({ type: 'text', text: currentText })
@@ -404,25 +324,36 @@ export async function runAgentLoop(
     }
     messages.push({ role: 'assistant', content: assistantContent })
 
-    // ── No tool calls → this turn is complete ────────────────────────────────
     if (toolCalls.length === 0) {
-      printTurnFooter(inputTokens, outputTokens, provider.name)
+      printTokenFooter(inputTokens, outputTokens, provider.name)
       break
     }
 
-    // ── Execute tools ────────────────────────────────────────────────────────
-    const toolResults: unknown[] = []
+    // Execute tools
+    console.log()
 
     for (const call of toolCalls) {
-      const hint = String(toolLabel(call.name, call.input)).slice(0, 55)
-      const header = call.isMcp
-        ? '\n  ' + T.brandBright('✉  ') + T.white(call.name)
-        : '\n  ' +
-          T.tool('⚡ ') +
-          T.white(call.name) +
-          T.dim('  ·  ') +
-          T.muted(hint)
-      console.log(header)
+      const hint = toolLabel(call.name, call.input)
+
+      console.log(T.dim('  ┌' + '─'.repeat(64) + '┐'))
+      console.log(T.dim('  │'))
+      const icon = call.isMcp ? T.assistant('✉') : T.toolIcon
+      const line =
+        icon +
+        ' ' +
+        T.white.bold(call.name) +
+        T.dim(' · ') +
+        T.muted(hint.slice(0, 35))
+      console.log(
+        T.dim('  │ ') +
+          line +
+          ' '.repeat(
+            Math.max(0, 60 - hint.slice(0, 35).length - call.name.length)
+          ) +
+          T.dim('│')
+      )
+      console.log(T.dim('  │'))
+      console.log(T.dim('  └' + '─'.repeat(64) + '┘'))
 
       const approved = await confirmTool(
         rl,
@@ -432,43 +363,37 @@ export async function runAgentLoop(
       )
 
       if (!approved) {
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: call.id,
-          content: 'User declined.',
+        console.log(T.dim('  │ ') + T.muted('skipped'))
+        console.log(T.dim('  └' + '─'.repeat(64) + '┘'))
+        messages.push({
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: call.id,
+              content: 'User declined.',
+            },
+          ],
         })
-        console.log(T.muted('  ↳ skipped'))
         continue
       }
 
-      if (call.isMcp) {
-        console.log(T.success('  ↳ approved — executing via MCP…'))
-        toolResults.push({
-          type: 'mcp_tool_result',
-          tool_use_id: call.id,
-          content: '__pending__',
-        })
-      } else {
-        process.stdout.write(T.dim('  ↳ ') + T.muted(toolActionText(call.name)))
-        const t0 = Date.now()
-        const result = await executeTool(call.name, call.input)
-        const elapsed = Date.now() - t0
-        process.stdout.write('\r\x1b[2K')
-        printToolResult(call.name, result, elapsed)
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: call.id,
-          content: result,
-        })
-      }
-    }
+      console.log(
+        T.dim('  │ ') + T.executing + ' ' + T.muted(toolAction(call.name))
+      )
 
-    // Push tool results back as a user message so the model can react
-    const localResults = toolResults.filter(
-      (r) => (r as any).type === 'tool_result'
-    )
-    if (localResults.length > 0) {
-      messages.push({ role: 'user', content: localResults })
+      const t0 = Date.now()
+      const result = await executeTool(call.name, call.input)
+      const elapsed = Date.now() - t0
+
+      printToolResult(call.name, result, elapsed)
+
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: call.id, content: result },
+        ],
+      })
     }
   }
 

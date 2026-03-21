@@ -13,8 +13,8 @@
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/your-username/supernano-bot.git
-cd supernano-bot
+git clone https://github.com/your-username/opensage.git
+cd opensage
 pnpm install
 ```
 
@@ -46,7 +46,7 @@ After building:
 
 ```bash
 pnpm link --global
-supernano-bot
+opensage
 ```
 
 ---

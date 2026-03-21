@@ -5,7 +5,7 @@ import type { ProviderName } from './providers/index.js'
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
-export const CONFIG_DIR = path.join(os.homedir(), '.aichat')
+export const CONFIG_DIR = path.join(os.homedir(), '.opensage')
 export const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 export const HISTORY_FILE = path.join(CONFIG_DIR, 'history.json')
 
@@ -53,7 +53,7 @@ export const DEFAULT_CONFIG: Config = {
 
   apiKeys: {},
 
-  systemPrompt: `You are aichat, a powerful personal AI assistant running in the user's terminal. You have direct access to their computer and Gmail.
+  systemPrompt: `You are opensage, a powerful personal AI assistant running in the user's terminal. You have direct access to their computer and Gmail.
 
 When given a task, use your tools to actually complete it — do not just describe what to do.
 

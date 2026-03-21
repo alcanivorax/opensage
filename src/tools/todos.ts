@@ -5,21 +5,21 @@ import type Anthropic from '@anthropic-ai/sdk'
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
-const TODOS_FILE = path.join(os.homedir(), '.aichat', 'todos.json')
+const TODOS_FILE = path.join(os.homedir(), '.opensage', 'todos.json')
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type Priority = 'low' | 'normal' | 'high'
 
 export interface Todo {
-  id:           string
-  text:         string
-  done:         boolean
-  priority:     Priority
-  due?:         string   // YYYY-MM-DD
-  tags?:        string[]
-  created:      string   // ISO
-  completedAt?: string   // ISO
+  id: string
+  text: string
+  done: boolean
+  priority: Priority
+  due?: string // YYYY-MM-DD
+  tags?: string[]
+  created: string // ISO
+  completedAt?: string // ISO
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
@@ -46,19 +46,20 @@ function makeId(): string {
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
 const PRIORITY_ICON: Record<Priority, string> = {
-  high:   '!!!',
+  high: '!!!',
   normal: '  -',
-  low:    '  ·',
+  low: '  ·',
 }
 
 function fmtTodo(t: Todo, idx: number): string {
-  const check   = t.done ? '[x]' : '[ ]'
-  const prio    = PRIORITY_ICON[t.priority]
-  const due     = t.due ? `  due: ${t.due}` : ''
-  const tags    = t.tags?.length ? `  #${t.tags.join(' #')}` : ''
-  const doneMark = t.done && t.completedAt
-    ? `  ✓ ${new Date(t.completedAt).toLocaleDateString()}`
-    : ''
+  const check = t.done ? '[x]' : '[ ]'
+  const prio = PRIORITY_ICON[t.priority]
+  const due = t.due ? `  due: ${t.due}` : ''
+  const tags = t.tags?.length ? `  #${t.tags.join(' #')}` : ''
+  const doneMark =
+    t.done && t.completedAt
+      ? `  ✓ ${new Date(t.completedAt).toLocaleDateString()}`
+      : ''
   return (
     `${String(idx + 1).padStart(3)}. ${check} ${prio}  ${t.text}` +
     `${due}${tags}${doneMark}` +
@@ -217,7 +218,7 @@ function resolve(
   if (!isNaN(n) && n >= 1 && n <= todos.length) {
     const active = todos.filter((t) => !t.done)
     const target = active[n - 1] ?? todos[n - 1]
-    const idx    = todos.indexOf(target)
+    const idx = todos.indexOf(target)
     return idx !== -1 ? { todo: target, idx } : null
   }
   // ID lookup
@@ -228,10 +229,10 @@ function resolve(
 // ─── Implementations ──────────────────────────────────────────────────────────
 
 export async function addTodo(input: {
-  text:      string
+  text: string
   priority?: string
-  due?:      string
-  tags?:     string[]
+  due?: string
+  tags?: string[]
 }): Promise<string> {
   const todos = load()
 
@@ -241,26 +242,26 @@ export async function addTodo(input: {
       : 'normal'
 
   const todo: Todo = {
-    id:       makeId(),
-    text:     input.text.trim(),
-    done:     false,
+    id: makeId(),
+    text: input.text.trim(),
+    done: false,
     priority,
-    due:      input.due || undefined,
-    tags:     input.tags?.length ? input.tags : undefined,
-    created:  new Date().toISOString(),
+    due: input.due || undefined,
+    tags: input.tags?.length ? input.tags : undefined,
+    created: new Date().toISOString(),
   }
 
   todos.push(todo)
   save(todos)
 
-  const dueStr  = todo.due ? `  due ${todo.due}` : ''
+  const dueStr = todo.due ? `  due ${todo.due}` : ''
   const prioStr = todo.priority !== 'normal' ? `  [${todo.priority}]` : ''
   return `✓ Added todo [${todo.id}]: "${todo.text}"${dueStr}${prioStr}`
 }
 
 export async function listTodos(input: { filter?: string }): Promise<string> {
-  const todos   = load()
-  const filter  = (input.filter ?? 'active').toLowerCase().trim()
+  const todos = load()
+  const filter = (input.filter ?? 'active').toLowerCase().trim()
 
   let subset: Todo[]
 
@@ -285,9 +286,7 @@ export async function listTodos(input: { filter?: string }): Promise<string> {
       break
     default:
       // Treat as tag filter
-      subset = todos.filter(
-        (t) => !t.done && t.tags?.includes(filter)
-      )
+      subset = todos.filter((t) => !t.done && t.tags?.includes(filter))
   }
 
   if (subset.length === 0) {
@@ -310,23 +309,25 @@ export async function listTodos(input: { filter?: string }): Promise<string> {
     return a.created.localeCompare(b.created)
   })
 
-  const today    = new Date().toISOString().slice(0, 10)
-  const lines    = subset.map((t, i) => {
-    const line     = fmtTodo(t, i)
+  const today = new Date().toISOString().slice(0, 10)
+  const lines = subset.map((t, i) => {
+    const line = fmtTodo(t, i)
     if (isOverdue(t)) return line + '  ⚠ OVERDUE'
     if (isDueToday(t)) return line + '  ← TODAY'
     return line
   })
 
-  const active    = todos.filter((t) => !t.done).length
-  const done      = todos.filter((t) => t.done).length
-  const overdue   = todos.filter((t) => isOverdue(t)).length
+  const active = todos.filter((t) => !t.done).length
+  const done = todos.filter((t) => t.done).length
+  const overdue = todos.filter((t) => isOverdue(t)).length
 
   const summary = [
     `${active} active`,
-    done > 0      ? `${done} done`        : null,
-    overdue > 0   ? `${overdue} overdue`  : null,
-  ].filter(Boolean).join('  ·  ')
+    done > 0 ? `${done} done` : null,
+    overdue > 0 ? `${overdue} overdue` : null,
+  ]
+    .filter(Boolean)
+    .join('  ·  ')
 
   return lines.join('\n') + `\n\n── ${summary}  ·  today: ${today}`
 }
@@ -352,12 +353,12 @@ export async function completeTodo(input: { id: string }): Promise<string> {
 
 export async function deleteTodo(input: { id: string }): Promise<string> {
   const todos = load()
-  const ref   = input.id.trim()
+  const ref = input.id.trim()
 
   // Special: delete all completed todos
   if (ref === 'done') {
     const before = todos.length
-    const kept   = todos.filter((t) => !t.done)
+    const kept = todos.filter((t) => !t.done)
     const removed = before - kept.length
     if (removed === 0) return 'No completed todos to delete.'
     save(kept)
@@ -376,11 +377,11 @@ export async function deleteTodo(input: { id: string }): Promise<string> {
 }
 
 export async function updateTodo(input: {
-  id:        string
-  text?:     string
+  id: string
+  text?: string
   priority?: string
-  due?:      string
-  tags?:     string[]
+  due?: string
+  tags?: string[]
 }): Promise<string> {
   const todos = load()
   const found = resolve(todos, input.id.trim())
@@ -392,8 +393,12 @@ export async function updateTodo(input: {
   const { todo, idx } = found
   const updated: Todo = { ...todo }
 
-  if (input.text)          updated.text     = input.text.trim()
-  if (input.priority === 'high' || input.priority === 'low' || input.priority === 'normal') {
+  if (input.text) updated.text = input.text.trim()
+  if (
+    input.priority === 'high' ||
+    input.priority === 'low' ||
+    input.priority === 'normal'
+  ) {
     updated.priority = input.priority
   }
   if (input.due !== undefined) {

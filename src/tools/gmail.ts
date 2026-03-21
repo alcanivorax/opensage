@@ -5,9 +5,9 @@ import type Anthropic from '@anthropic-ai/sdk'
 
 // ─── Storage paths ────────────────────────────────────────────────────────────
 
-const AICHAT_DIR = path.join(os.homedir(), '.aichat')
-const CREDS_FILE = path.join(AICHAT_DIR, 'google-creds.json')
-const TOKENS_FILE = path.join(AICHAT_DIR, 'google-tokens.json')
+const OPENSAGE_DIR = path.join(os.homedir(), '.opensage')
+const CREDS_FILE = path.join(OPENSAGE_DIR, 'google-creds.json')
+const TOKENS_FILE = path.join(OPENSAGE_DIR, 'google-tokens.json')
 
 // ─── Google OAuth2 constants ──────────────────────────────────────────────────
 
@@ -64,7 +64,8 @@ interface GmailMessage {
 // ─── Credential / token helpers ───────────────────────────────────────────────
 
 function ensureDir(): void {
-  if (!fs.existsSync(AICHAT_DIR)) fs.mkdirSync(AICHAT_DIR, { recursive: true })
+  if (!fs.existsSync(OPENSAGE_DIR))
+    fs.mkdirSync(OPENSAGE_DIR, { recursive: true })
 }
 
 export function loadCreds(): GoogleCreds | null {

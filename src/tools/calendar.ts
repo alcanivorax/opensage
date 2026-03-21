@@ -487,8 +487,6 @@ export async function calendarDelete(input: {
 
   // DELETE returns 204 No Content on success — googleApiFetch expects JSON,
   // so we call the raw fetch manually here.
-  const { googleApiFetch: _unused, ..._ } = { googleApiFetch: null } // just for the linter
-  void _unused
 
   // Use a raw fetch with the token by calling googleApiFetch with a custom
   // response handler via a workaround: send a HEAD-like empty-body request

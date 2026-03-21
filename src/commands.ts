@@ -3,7 +3,7 @@ import * as path from 'path'
 import * as readline from 'readline'
 import * as child_process from 'child_process'
 import { T } from './ui/theme.js'
-import { printHelp, printTools, VERSION } from './ui/banner.js'
+import { printHelp, printTools, printGoodbye, VERSION } from './ui/banner.js'
 import { renderMarkdown } from './ui/render.js'
 import { saveHistory, saveConfig, loadHistory } from './config.js'
 import { loadMemory, deleteMemoryEntry } from './tools/memory.js'
@@ -167,7 +167,7 @@ export async function handleCommand(
       const creds = loadCreds()!
       const authUrl = buildAuthUrl(creds.client_id)
 
-      console.log(T.brandBright('  Authorize aichat in your browser:'))
+      console.log(T.brandBright('  Authorize opensage in your browser:'))
       console.log()
       console.log('  ' + T.accent(authUrl))
       console.log()
@@ -218,7 +218,7 @@ export async function handleCommand(
         console.log(T.success('  ✓ Gmail authorized successfully!'))
         console.log(
           T.muted(
-            '  Tokens saved to ~/.aichat/google-tokens.json\n' +
+            '  Tokens saved to ~/.opensage/google-tokens.json\n' +
               '  They refresh automatically — you will not need to do this again.\n'
           )
         )
@@ -283,7 +283,7 @@ export async function handleCommand(
     case '/exit':
     case '/quit':
       if (state.messages.length) saveHistory(state.messages)
-      console.log('\n' + T.muted('  goodbye ✦\n'))
+      printGoodbye()
       return { type: 'exit' }
 
     case '/clear':
@@ -298,7 +298,7 @@ export async function handleCommand(
 
     case '/save':
       saveHistory(state.messages)
-      console.log('\n' + T.success('  ✓ Saved to ~/.aichat/history.json\n'))
+      console.log('\n' + T.success('  ✓ Saved to ~/.opensage/history.json\n'))
       return { type: 'continue' }
 
     case '/gmail-status': {
@@ -838,7 +838,7 @@ export async function handleCommand(
       return { type: 'continue' }
 
     case '/version':
-      console.log('\n' + T.muted('  aichat v') + T.accent(VERSION) + '\n')
+      console.log('\n' + T.muted('  opensage v') + T.accent(VERSION) + '\n')
       return { type: 'continue' }
 
     default:

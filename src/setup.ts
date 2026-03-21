@@ -6,14 +6,10 @@ import { ANTHROPIC_MODELS, OPENROUTER_FREE_MODELS } from './providers/index.js'
 import type { Config } from './config.js'
 import type { ProviderName } from './providers/index.js'
 
-// ─── Result type ──────────────────────────────────────────────────────────────
-
 export interface SetupResult {
   config: Config
   apiKey: string
 }
-
-// ─── Readline helpers ─────────────────────────────────────────────────────────
 
 function makeRl(): readline.Interface {
   return readline.createInterface({
@@ -29,10 +25,6 @@ function ask(rl: readline.Interface, prompt: string): Promise<string> {
   )
 }
 
-/**
- * Pick a number from 1..n, or press Enter to accept the default (index 0).
- * Keeps asking until a valid answer is given.
- */
 async function pickNumber(
   rl: readline.Interface,
   count: number,
@@ -40,27 +32,16 @@ async function pickNumber(
 ): Promise<number> {
   while (true) {
     const ans = await ask(rl, promptStr)
-    if (ans === '') return 0 // default
+    if (ans === '') return 0
     const n = parseInt(ans, 10)
     if (!isNaN(n) && n >= 1 && n <= count) return n - 1
-    console.log(
-      '  ' + T.warn(`Please enter a number between 1 and ${count}, or Enter for the default.`)
-    )
+    console.log('  ' + T.warn(`Enter 1-${count} or press Enter`))
   }
 }
-
-// ─── Masked key input ─────────────────────────────────────────────────────────
-//
-//  Reads a line from stdin character-by-character in raw mode, echoing ● for
-//  each printable character so the key is never shown in plain text.
-//
-//  Falls back to a plain readline.question() call when stdin is not a TTY
-//  (e.g. piped input in tests).
 
 async function readMasked(promptStr: string): Promise<string> {
   process.stdout.write(promptStr)
 
-  // ── Non-TTY fallback ───────────────────────────────────────────────────────
   if (!process.stdin.isTTY) {
     const fb = makeRl()
     return new Promise((resolve) =>
@@ -71,7 +52,6 @@ async function readMasked(promptStr: string): Promise<string> {
     )
   }
 
-  // ── Raw mode ───────────────────────────────────────────────────────────────
   return new Promise((resolve) => {
     let input = ''
 
@@ -79,7 +59,6 @@ async function readMasked(promptStr: string): Promise<string> {
       for (let i = 0; i < buf.length; i++) {
         const b = buf[i]
 
-        // Enter / Return
         if (b === 13 || b === 10) {
           cleanup()
           process.stdout.write('\n')
@@ -87,21 +66,18 @@ async function readMasked(promptStr: string): Promise<string> {
           return
         }
 
-        // Ctrl-C
         if (b === 3) {
           cleanup()
           process.stdout.write('\n')
           process.exit(0)
         }
 
-        // Ctrl-U — clear line
         if (b === 21) {
           process.stdout.write('\r\x1b[2K' + promptStr)
           input = ''
           continue
         }
 
-        // Backspace / Delete
         if (b === 127 || b === 8) {
           if (input.length > 0) {
             input = input.slice(0, -1)
@@ -110,7 +86,6 @@ async function readMasked(promptStr: string): Promise<string> {
           continue
         }
 
-        // Printable ASCII (includes common key characters like -_.)
         if (b >= 32 && b < 127) {
           input += String.fromCharCode(b)
           process.stdout.write('●')
@@ -122,7 +97,7 @@ async function readMasked(promptStr: string): Promise<string> {
       try {
         process.stdin.setRawMode(false)
       } catch {
-        // not a TTY at cleanup time — ignore
+        /* ignore */
       }
       process.stdin.removeListener('data', handler)
       process.stdin.pause()
@@ -134,128 +109,94 @@ async function readMasked(promptStr: string): Promise<string> {
   })
 }
 
-// ─── Visual helpers ───────────────────────────────────────────────────────────
-
-const W = 54 // inner box width
-
-function boxTop(): void {
-  console.log(T.dim('  ╭' + '─'.repeat(W) + '╮'))
-}
-
-function boxLine(content: string, rawLen: number): void {
-  const pad = Math.max(0, W - 2 - rawLen)
-  console.log(T.dim('  │ ') + content + ' '.repeat(pad) + T.dim(' │'))
-}
-
-function boxBot(): void {
-  console.log(T.dim('  ╰' + '─'.repeat(W) + '╯'))
-}
+const W = 54
 
 function sectionHeader(step: string, title: string): void {
   console.log()
   console.log(
-    T.brandBright.bold('  ' + step + '  ') +
-      T.dim('·') +
-      '  ' +
-      T.white(title)
+    T.brandBright('  ' + step + '  ') + T.dim('·') + '  ' + T.white(title)
   )
   console.log(T.dim('  ' + '─'.repeat(W)))
   console.log()
 }
 
-function stepDone(label: string, value: string): void {
+function done(label: string, value: string): void {
   console.log(
-    '\n  ' +
-      T.success('✓  ') +
-      T.muted(label + ': ') +
-      T.white(value) +
-      '\n'
+    '\n' + T.check + ' ' + T.muted(label + ': ') + T.accent(value) + '\n'
   )
 }
-
-// ─── Wizard ───────────────────────────────────────────────────────────────────
 
 export async function runSetupWizard(
   existingConfig?: Partial<Config>
 ): Promise<SetupResult> {
   const cfg: Config = { ...DEFAULT_CONFIG, ...(existingConfig ?? {}) }
 
-  // ── Banner ─────────────────────────────────────────────────────────────────
+  // Welcome
   console.log()
-  boxTop()
-  boxLine(
-    T.brandBright.bold('✦  aichat') + T.dim('  ·  ') + T.muted('v' + VERSION),
-    10 + VERSION.length
+  console.log(T.dim('  ╭' + '─'.repeat(W) + '╮'))
+  console.log(
+    T.dim('  │') +
+      ' ' +
+      T.brandBright.bold('◆ opensage') +
+      T.dim(' v' + VERSION) +
+      ' '.repeat(W - 14 - VERSION.length) +
+      T.dim('│')
   )
-  boxLine(T.muted('   First-time setup'), 19)
-  boxBot()
+  console.log(T.dim('  │') + ' '.repeat(W) + T.dim('│'))
+  console.log(
+    T.dim('  │') +
+      ' ' +
+      T.muted('First-time setup') +
+      ' '.repeat(W - 18) +
+      T.dim('│')
+  )
+  console.log(T.dim('  │') + ' '.repeat(W) + T.dim('│'))
+  console.log(T.dim('  ╰' + '─'.repeat(W) + '╯'))
+  console.log()
 
-  // ── Step 1 · Provider ─────────────────────────────────────────────────────
-  sectionHeader('1 / 3', 'Choose a provider')
-
-  const providers: ProviderName[] = ['anthropic', 'openrouter']
+  // Step 1: Provider
+  sectionHeader('1 / 3', 'Choose provider')
 
   console.log(
     '  ' +
       T.accent('1') +
       T.dim('  ─  ') +
       T.white('Anthropic') +
-      T.muted('      Claude models — best reasoning, paid plans') +
-      T.dim('  ← default')
+      T.muted('  Claude models')
   )
   console.log(
     '  ' +
       T.accent('2') +
       T.dim('  ─  ') +
       T.white('OpenRouter') +
-      T.muted('     300+ models, many completely free')
+      T.muted('  Free tier available')
   )
   console.log()
 
   const rl1 = makeRl()
-  const providerIdx = await pickNumber(
-    rl1,
-    providers.length,
-    '  ' + T.dim('›') + ' '
-  )
+  const providerIdx = await pickNumber(rl1, 2, '  ' + T.dim('›') + ' ')
   rl1.close()
 
-  cfg.provider = providers[providerIdx]
-  stepDone('Provider', cfg.provider)
+  cfg.provider = ['anthropic', 'openrouter'][providerIdx] as ProviderName
+  done('Provider', cfg.provider)
 
-  // ── Step 2 · API Key ──────────────────────────────────────────────────────
-  sectionHeader('2 / 3', 'Paste your API key')
+  // Step 2: API Key
+  sectionHeader('2 / 3', 'Enter API key')
 
-  if (cfg.provider === 'anthropic') {
-    console.log(
-      T.muted('  Get a key →  ') +
-        T.accent('https://console.anthropic.com/keys')
-    )
-  } else {
-    console.log(
-      T.muted('  Get a free key →  ') +
-        T.accent('https://openrouter.ai/keys')
-    )
-  }
-  console.log(
-    T.muted(
-      '  Stored in ~/.aichat/config.json · never sent anywhere else.'
-    )
-  )
-  console.log(
-    T.dim(
-      '  (Ctrl-U to clear the line  ·  Ctrl-C to abort)'
-    )
-  )
+  const url =
+    cfg.provider === 'anthropic'
+      ? 'https://console.anthropic.com/keys'
+      : 'https://openrouter.ai/keys'
+
+  console.log('  ' + T.muted('Get key: ') + T.accent(url))
+  console.log('  ' + T.muted('Ctrl-U to clear · Ctrl-C to abort'))
   console.log()
 
-  // readMasked uses raw mode — no readline interface must be open while it runs
   let apiKey = ''
   while (true) {
     apiKey = await readMasked('  ' + T.dim('›') + ' ')
     if (apiKey.trim().length > 0) break
-    console.log('\n  ' + T.warn('API key cannot be empty. Please try again.'))
-    console.log()
+    console.log('\n  ' + T.warn('Key cannot be empty\n'))
   }
 
   if (cfg.provider === 'anthropic') {
@@ -264,56 +205,74 @@ export async function runSetupWizard(
     cfg.apiKeys = { ...cfg.apiKeys, openrouter: apiKey.trim() }
   }
 
-  stepDone('Key', '●'.repeat(Math.min(12, apiKey.length)) + '  (saved)')
+  done('Key', '●●●●●●●● (' + apiKey.length + ' chars)')
 
-  // ── Step 3 · Model ────────────────────────────────────────────────────────
-  sectionHeader('3 / 3', 'Choose a model')
+  // Step 3: Model
+  sectionHeader('3 / 3', 'Choose model')
 
   const models =
     cfg.provider === 'anthropic' ? ANTHROPIC_MODELS : OPENROUTER_FREE_MODELS
 
-  models.forEach((m, i) => {
+  for (let i = 0; i < Math.min(models.length, 5); i++) {
+    const m = models[i]
     const isDefault = i === 0
-    const bullet = isDefault ? T.success('●') : T.dim('○')
-    const num = T.accent(String(i + 1))
-    const idStr = T.white(m.id)
-    const labelStr = T.muted(m.label)
-    const defTag = isDefault ? '  ' + T.dim('← default') : ''
-
-    console.log('  ' + bullet + '  ' + num + '  ' + idStr)
-    console.log('         ' + labelStr + defTag)
+    console.log(
+      '  ' +
+        (isDefault ? T.success('●') : T.dim('○')) +
+        '  ' +
+        T.accent(String(i + 1)) +
+        '  ' +
+        T.white(m.id)
+    )
+    console.log(
+      '         ' +
+        T.muted(m.label) +
+        (isDefault ? ' ' + T.dim('← default') : '')
+    )
     console.log()
-  })
+  }
 
-  console.log(
-    T.muted('  Press Enter to use the default') +
-      T.dim('  [1]') +
-      T.muted('  or type a number.')
-  )
-  console.log()
+  if (models.length > 5) {
+    console.log('  ' + T.muted('... and ' + (models.length - 5) + ' more'))
+    console.log()
+  }
 
   cfg.model = models[0].id
 
   const rl3 = makeRl()
   const modelIdx = await pickNumber(
     rl3,
-    models.length,
+    Math.min(models.length, 5),
     '  ' + T.dim('›') + ' '
   )
   rl3.close()
 
   cfg.model = models[modelIdx].id
-  stepDone('Model', cfg.model)
+  done('Model', cfg.model)
 
-  // ── Save ──────────────────────────────────────────────────────────────────
+  // Save
   saveConfig(cfg)
 
+  console.log()
   console.log(T.dim('  ╭' + '─'.repeat(W) + '╮'))
   console.log(
-    T.dim('  │ ') +
-      T.success('✓  All set — config saved to ~/.aichat/config.json') +
-      T.dim('  │')
+    T.dim('  │') +
+      ' ' +
+      T.success('✓') +
+      ' ' +
+      T.white.bold('All set!') +
+      ' '.repeat(W - 12) +
+      T.dim('│')
   )
+  console.log(T.dim('  │') + ' '.repeat(W) + T.dim('│'))
+  console.log(
+    T.dim('  │') +
+      ' ' +
+      T.muted('Config saved to ~/.opensage/config.json') +
+      ' '.repeat(W - 42) +
+      T.dim('│')
+  )
+  console.log(T.dim('  │') + ' '.repeat(W) + T.dim('│'))
   console.log(T.dim('  ╰' + '─'.repeat(W) + '╯'))
   console.log()
 

@@ -21,8 +21,8 @@ export class OpenRouterProvider implements Provider {
       apiKey,
       baseURL: OPENROUTER_BASE,
       defaultHeaders: {
-        'HTTP-Referer': 'https://github.com/aichat-cli',
-        'X-Title': 'aichat terminal',
+        'HTTP-Referer': 'https://github.com/opensage-cli',
+        'X-Title': 'opensage terminal',
       },
     })
   }

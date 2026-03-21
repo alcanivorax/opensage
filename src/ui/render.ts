@@ -1,83 +1,45 @@
 import chalk from 'chalk'
 import { highlight } from 'cli-highlight'
-import { T } from './theme.js'
+import { T, CONTENT_WIDTH } from './theme.js'
 
-// ─── Box width constants ──────────────────────────────────────────────────────
+const CODE_W = CONTENT_WIDTH - 4
+const LNUM_W = 4
 
-const BOX_W = 66 // border dash count for full-width code fence
-const INNER_W = 44 // space for language label filler
-const LNUM_W = 4 // line-number column width
+// ─── Thinking ─────────────────────────────────────────────────────────────────
 
-// ─── Inline tool-call chrome ──────────────────────────────────────────────────
-//
-//  Used by the chat loop to render tool invocations before the model responds.
-//
-//    ┄ read_file  ~/Documents/notes.md  ✓ auto
-//    ┄ bash       echo "hello"          ⚠ confirm
-
-export function printToolCall(
-  name: string,
-  preview: string,
-  needsConfirm: boolean
-): void {
-  const badge = needsConfirm
-    ? T.warn('⚠') + ' ' + T.dim('confirm')
-    : T.success('✓') + ' ' + T.dim('auto   ')
-  console.log(
-    T.dim('  ┄ ') +
-      T.tool(name.padEnd(14)) +
-      T.muted(preview.slice(0, 38).padEnd(40)) +
-      badge
-  )
-}
-
-export function printToolResult(
-  name: string,
-  ok: boolean,
-  summary: string
-): void {
-  const icon = ok ? T.success('✔') : T.error('✘')
-  console.log(
-    T.dim('  └ ') +
-      icon +
-      ' ' +
-      T.dim(name.padEnd(14)) +
-      T.muted(summary.slice(0, 48))
-  )
-}
-
-// ─── Thinking / status spinner line ───────────────────────────────────────────
+const thinkingFrames = ['◌', '◐', '◓', '◒']
+let frameIdx = 0
 
 export function printThinking(label = 'thinking…'): void {
-  process.stdout.write(T.dim('  ◌ ') + T.muted(label))
+  process.stdout.write('\r  ' + T.thinking(label) + ' ')
 }
 
-export function clearLine(): void {
+export function clearThinking(): void {
   process.stdout.write('\r\x1B[K')
 }
 
+export function animateThinking(label: string): NodeJS.Timeout {
+  return setInterval(() => {
+    const frame = thinkingFrames[frameIdx++ % thinkingFrames.length]
+    process.stdout.write('\r  ' + T.dim(frame) + ' ' + T.muted(label) + ' ')
+  }, 120)
+}
+
 // ─── StreamRenderer ───────────────────────────────────────────────────────────
-//
-//  Renders markdown incrementally as text streams in, line-by-line.
-//  Feed raw delta strings via .feed(); call .flush() once the stream ends.
-//
-//  Code blocks stream progressively in teal (no syntax highlight during
-//  streaming — preserves the live feel).  Static /copy re-renders use
-//  renderMarkdown() which applies full syntax highlighting.
 
 export class StreamRenderer {
   private buf = ''
   private inCode = false
   private codeLang = ''
+  private firstLine = true
 
-  /** Feed a raw text delta. Returns terminal-ready string to write immediately. */
   feed(delta: string): string {
     this.buf += delta
     let out = ''
     let nl = this.buf.indexOf('\n')
 
     while (nl !== -1) {
-      out += this._processLine(this.buf.slice(0, nl)) + '\n'
+      out += this._processLine(this.buf.slice(0, nl))
       this.buf = this.buf.slice(nl + 1)
       nl = this.buf.indexOf('\n')
     }
@@ -85,10 +47,6 @@ export class StreamRenderer {
     return out
   }
 
-  /**
-   * Flush remaining buffered content (call once after the stream ends).
-   * Also closes any unclosed code block.
-   */
   flush(): string {
     let out = ''
 
@@ -99,113 +57,94 @@ export class StreamRenderer {
 
     if (this.inCode) {
       this.inCode = false
-      out += '\n' + T.dim('  ╰' + '─'.repeat(BOX_W))
+      out += '\n' + T.dim('  ╰' + '─'.repeat(CODE_W + 2) + '╯')
     }
 
     return out
   }
 
-  // ── Private helpers ──────────────────────────────────────────────────────────
-
   private _processLine(line: string): string {
-    // Fenced code block fence ───────────────────────────────────────────────
     if (line.startsWith('```')) {
       if (!this.inCode) {
         this.inCode = true
         this.codeLang = line.slice(3).trim()
         const lang = this.codeLang || 'code'
-        const filler = '─'.repeat(Math.max(0, INNER_W - lang.length))
+        const prefix = this.firstLine ? '' : '\n'
+        this.firstLine = false
         return (
-          '\n' +
+          prefix +
           T.dim('  ╭─ ') +
-          T.muted(lang) +
-          T.dim('  ' + filler + '─'.repeat(BOX_W - INNER_W - 5) + '╮')
+          T.tool(lang) +
+          T.dim('  ' + '─'.repeat(CODE_W - lang.length - 4) + '╮')
         )
       } else {
         this.inCode = false
-        this.codeLang = ''
-        return T.dim('  ╰' + '─'.repeat(BOX_W) + '╯')
+        return '\n' + T.dim('  ╰' + '─'.repeat(CODE_W + 2) + '╯')
       }
     }
 
-    // Inside code block ──────────────────────────────────────────────────────
     if (this.inCode) {
-      return T.dim('  │ ') + T.tool(line)
+      return '\n' + T.dim('  │ ') + T.tool(line)
     }
 
-    // Normal prose line ──────────────────────────────────────────────────────
     return this._renderProse(line)
   }
 
   private _renderProse(line: string): string {
-    // Headers
+    const prefix = this.firstLine ? '' : '\n'
+    this.firstLine = false
+
     if (line.startsWith('### '))
-      return '\n' + T.brandBright('  ◆ ') + chalk.bold.white(line.slice(4))
+      return prefix + T.brandBright('  ◆ ') + chalk.bold.white(line.slice(4))
     if (line.startsWith('## '))
-      return '\n' + T.brand.bold('  ◈ ') + chalk.bold.white(line.slice(3))
+      return prefix + T.brand('  ◈ ') + chalk.bold.white(line.slice(3))
     if (line.startsWith('# '))
-      return '\n' + T.brand.bold.underline('  ✦ ' + line.slice(2))
+      return prefix + T.brandBright.bold('  ' + line.slice(2))
 
-    // Blockquote
     if (line.startsWith('> '))
-      return T.dim('  ▌ ') + T.muted(this._inline(line.slice(2)))
+      return prefix + T.dim('  ▌ ') + T.muted(this._inline(line.slice(2)))
 
-    // Horizontal rule
-    if (/^---+$/.test(line.trim())) return T.dim('  ' + '─'.repeat(54))
+    if (/^---+$/.test(line.trim())) return prefix + T.dim('  ' + '─'.repeat(60))
 
-    // Task list  (- [ ] / - [x])
-    const taskMatch = line.match(/^(\s*)- \[([ x])\] (.+)$/)
-    if (taskMatch) {
-      const done = taskMatch[2] === 'x'
+    const task = line.match(/^(\s*)- \[([ x])\] (.+)$/)
+    if (task) {
+      const done = task[2] === 'x'
       const box = done ? T.success('☑') : T.dim('☐')
-      const text = done ? T.muted(taskMatch[3]) : this._inline(taskMatch[3])
-      return '  ' + box + ' ' + text
+      const text = done ? T.muted(task[3]) : this._inline(task[3])
+      return prefix + '  ' + box + ' ' + text
     }
 
-    // Unordered list
-    const ulMatch = line.match(/^(\s*)[-*] (.+)$/)
-    if (ulMatch) {
-      const indent = ulMatch[1].length > 0 ? '    ' : '  '
-      return indent + T.accent('▸ ') + this._inline(ulMatch[2])
+    const ul = line.match(/^(\s*)[-*] (.+)$/)
+    if (ul) {
+      const indent = ul[1].length > 0 ? '    ' : '  '
+      return prefix + indent + T.accent('▸ ') + this._inline(ul[2])
     }
 
-    // Ordered list
-    const olMatch = line.match(/^(\s*)(\d+)\. (.+)$/)
-    if (olMatch)
-      return '  ' + T.accent(`${olMatch[2]}. `) + this._inline(olMatch[3])
+    const ol = line.match(/^(\s*)(\d+)\. (.+)$/)
+    if (ol) return prefix + '  ' + T.accent(`${ol[2]}. `) + this._inline(ol[3])
 
-    // Empty line
     if (!line.trim()) return ''
 
-    return '  ' + this._inline(line)
+    return prefix + '  ' + this._inline(line)
   }
 
-  /** Apply inline styles: code, bold, italic, strikethrough */
   private _inline(text: string): string {
-    return (
-      text
-        // Inline code (protect from further substitution)
-        .replace(/`([^`\n]+)`/g, (_, c) =>
-          chalk.bgHex('#1E293B')(T.accent(` ${c} `))
-        )
-        // Bold
-        .replace(/\*\*(.+?)\*\*/g, (_, s) => chalk.bold.white(s))
-        // Italic
-        .replace(/\*(.+?)\*/g, (_, s) => chalk.italic.hex('#CBD5E1')(s))
-        // Strikethrough
-        .replace(/~~(.+?)~~/g, (_, s) => chalk.strikethrough(T.muted(s)))
-    )
+    return text
+      .replace(/`([^`\n]+)`/g, (_, c) =>
+        chalk.bgHex('#1E293B')(T.accent(` ${c} `))
+      )
+      .replace(/\*\*(.+?)\*\*/g, (_, s) => chalk.bold.white(s))
+      .replace(/\*(.+?)\*/g, (_, s) => chalk.italic.hex('#CBD5E1')(s))
+      .replace(/~~(.+?)~~/g, (_, s) => chalk.strikethrough(T.muted(s)))
   }
 }
 
-// ─── Static full-document renderer ───────────────────────────────────────────
-//
-//  Used for pipe-mode output and /copy re-render.
-//  Applies proper syntax highlighting and line numbers to code blocks.
+// ─── Markdown Renderer ────────────────────────────────────────────────────────
 
 export function renderMarkdown(text: string): string {
-  // ── Fenced code blocks (with syntax highlighting + line numbers) ──────────
-  text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (_match, lang, code) => {
+  let out = ''
+
+  text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (_m, lang, code) => {
     const language = lang || 'plaintext'
     let highlighted: string
 
@@ -233,44 +172,30 @@ export function renderMarkdown(text: string): string {
       .join('\n')
 
     const langLabel = language
-    const filler = '─'.repeat(Math.max(0, INNER_W - langLabel.length))
-    const rightFill = '─'.repeat(BOX_W - INNER_W - 5)
+    const rightFill = '─'.repeat(CODE_W - langLabel.length - 4)
 
-    return (
-      `\n${T.dim('  ╭─ ')}${T.muted(langLabel)}${T.dim('  ' + filler + rightFill + '╮')}\n` +
-      `${numbered}\n` +
-      `${T.dim('  ╰' + '─'.repeat(BOX_W) + '╯')}\n`
-    )
+    out += `\n${T.dim('  ╭─ ')}${T.tool(langLabel)}${T.dim('  ' + rightFill + '╮')}\n`
+    out += numbered + '\n'
+    out += `${T.dim('  ╰' + '─'.repeat(CODE_W + 2) + '╯')}\n`
+
+    return ''
   })
 
-  // ── Inline code ───────────────────────────────────────────────────────────
-  text = text.replace(/`([^`\n]+)`/g, (_, c) =>
-    chalk.bgHex('#1E293B')(T.accent(` ${c} `))
-  )
-
-  // ── Bold / italic / strikethrough ─────────────────────────────────────────
-  text = text.replace(/\*\*(.+?)\*\*/g, (_, t) => chalk.bold.white(t))
-  text = text.replace(/\*(.+?)\*/g, (_, t) => chalk.italic.hex('#CBD5E1')(t))
-  text = text.replace(/~~(.+?)~~/g, (_, t) => chalk.strikethrough(T.muted(t)))
-
-  // ── Headers ───────────────────────────────────────────────────────────────
   text = text.replace(
     /^### (.+)$/gm,
     (_, t) => '\n' + T.brandBright('  ◆ ') + chalk.bold.white(t)
   )
   text = text.replace(
     /^## (.+)$/gm,
-    (_, t) => '\n' + T.brand.bold('  ◈ ') + chalk.bold.white(t)
+    (_, t) => '\n' + T.brand('  ◈ ') + chalk.bold.white(t)
   )
   text = text.replace(
     /^# (.+)$/gm,
-    (_, t) => '\n' + T.brand.bold.underline('  ✦ ' + t)
+    (_, t) => '\n' + T.brandBright.bold('  ' + t)
   )
 
-  // ── Blockquote ────────────────────────────────────────────────────────────
   text = text.replace(/^> (.+)$/gm, (_, t) => T.dim('  ▌ ') + T.muted(t))
 
-  // ── Task lists ────────────────────────────────────────────────────────────
   text = text.replace(
     /^- \[x\] (.+)$/gim,
     (_, t) => '  ' + T.success('☑') + ' ' + T.muted(t)
@@ -280,7 +205,6 @@ export function renderMarkdown(text: string): string {
     (_, t) => '  ' + T.dim('☐') + ' ' + T.white(t)
   )
 
-  // ── Lists ─────────────────────────────────────────────────────────────────
   text = text.replace(
     /^[-*] (.+)$/gm,
     (_, t) => '  ' + T.accent('▸ ') + T.white(t)
@@ -290,8 +214,71 @@ export function renderMarkdown(text: string): string {
     (_, n, t) => '  ' + T.accent(`${n}. `) + T.white(t)
   )
 
-  // ── Horizontal rule ───────────────────────────────────────────────────────
-  text = text.replace(/^---+$/gm, T.dim('  ' + '─'.repeat(54)))
+  text = text.replace(/^---+$/gm, T.dim('  ' + '─'.repeat(60)))
 
-  return text
+  text = text.replace(/`([^`\n]+)`/g, (_, c) =>
+    chalk.bgHex('#1E293B')(T.accent(` ${c} `))
+  )
+  text = text.replace(/\*\*(.+?)\*\*/g, (_, t) => chalk.bold.white(t))
+  text = text.replace(/\*(.+?)\*/g, (_, t) => chalk.italic.hex('#CBD5E1')(t))
+  text = text.replace(/~~(.+?)~~/g, (_, t) => chalk.strikethrough(T.muted(t)))
+
+  return out + '\n' + text
+}
+
+// ─── Confirm Dialog ────────────────────────────────────────────────────────────
+
+export function printConfirmDialog(
+  name: string,
+  details: Record<string, string>,
+  sensitive: boolean
+): void {
+  const W = CONTENT_WIDTH
+
+  console.log()
+  console.log(T.dim('┌' + '─'.repeat(W) + '┐'))
+
+  const header = sensitive
+    ? T.warn + ' ' + T.white.bold(name)
+    : T.toolIcon + ' ' + T.white.bold(name)
+  console.log(
+    T.dim('│') + ' ' + header + ' '.repeat(W - name.length - 3) + T.dim('│')
+  )
+  console.log(T.dim('├' + '─'.repeat(W) + '┤'))
+
+  for (const [key, value] of Object.entries(details)) {
+    const line = T.muted(key.padEnd(12)) + ' ' + T.white(value)
+    console.log(T.dim('│') + ' ' + line.padEnd(W) + T.dim('│'))
+  }
+
+  console.log(T.dim('└' + '─'.repeat(W) + '┘'))
+}
+
+export function printProceedPrompt(): void {
+  process.stdout.write(
+    T.warn('proceed?') + ' ' + T.muted('[y/n] ') + T.dim('› ')
+  )
+}
+
+// ─── Token Footer ─────────────────────────────────────────────────────────────
+
+export function printTokenFooter(
+  inputTokens: number,
+  outputTokens: number,
+  providerName: string
+): void {
+  const fmt = (n: number) =>
+    n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+  console.log()
+  console.log(
+    T.dim('── ') +
+      T.muted(`${fmt(inputTokens)} in`) +
+      T.dim(' · ') +
+      T.muted(`${fmt(outputTokens)} out`) +
+      T.dim(' · ') +
+      T.muted(providerName) +
+      ' ' +
+      T.dim('─'.repeat(20))
+  )
+  console.log()
 }
