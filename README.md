@@ -1,10 +1,9 @@
-
 ## Local Development
 
 ### Prerequisites
 
-* Node.js (v18 or higher recommended)
-* pnpm
+- Node.js (v18 or higher recommended)
+- pnpm
 
 ---
 

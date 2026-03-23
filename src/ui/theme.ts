@@ -1,86 +1,48 @@
-import chalk from 'chalk'
+// ─── Theme — Claude Code style (orange brand + slate palette) ─────────────────
 
-// ─── Claude Code-inspired Colour Palette ─────────────────────────────────────
-//
-// Clean, minimal design with clear hierarchy.
-// Monochrome base with strategic amber brand identity.
-//
-const c = {
-  brand: chalk.hex('#F59E0B'),
-  brandBright: chalk.hex('#D97757'),
-  accent: chalk.hex('#67E8F9'),
-  success: chalk.hex('#34D399'),
-  warn: chalk.hex('#FCD34D'),
-  error: chalk.hex('#F87171'),
-  tool: chalk.hex('#A78BFA'),
-  primary: chalk.hex('#F8FAFC'),
-  white: chalk.hex('#E2E8F0'),
-  muted: chalk.hex('#94A3B8'),
-  dim: chalk.hex('#475569'),
-  subtle: chalk.hex('#334155'),
-  user: chalk.hex('#F472B6'),
-  assistant: chalk.hex('#A78BFA'),
-  system: chalk.hex('#34D399'),
-}
+export const colors = {
+  // Brand
+  brand: '#F97316', // orange-500
+  brandBright: '#FB923C', // orange-400
+  brandDim: '#EA580C', // orange-600
 
-export const T = {
-  ...c,
+  // Accent
+  accent: '#38BDF8', // sky-400
+  success: '#34D399', // emerald-400
+  warn: '#FCD34D', // amber-300
+  error: '#F87171', // red-400
+  tool: '#C084FC', // purple-400
 
-  brandDim: c.brand,
+  // Text hierarchy
+  primary: '#F8FAFC', // slate-50
+  white: '#E2E8F0', // slate-200
+  muted: '#94A3B8', // slate-400
+  dim: '#475569', // slate-600
+  subtle: '#334155', // slate-700
 
-  boxTopDouble: (label: string, width: number): string => {
-    const len = label.length
-    const pad = Math.max(0, width - len - 4)
-    return (
-      c.dim('╔') +
-      c.dim('═') +
-      (label ? c.muted(' ' + label + ' ') : ' ') +
-      c.dim('═'.repeat(pad + 2)) +
-      c.dim('╗')
-    )
-  },
+  // Role colours
+  user: '#F472B6', // pink-400
+  assistant: '#C084FC', // purple-400
+  system: '#34D399', // emerald-400
+} as const
 
-  boxBottomDouble: (width: number): string =>
-    c.dim('╚' + '═'.repeat(width + 4) + '╝'),
+export type Color = (typeof colors)[keyof typeof colors]
 
-  boxTop: (label: string, width: number): string => {
-    const len = label.length
-    const pad = Math.max(0, width - len - 4)
-    return (
-      c.dim('╭─ ') + c.muted(label) + c.dim(' ' + '─'.repeat(pad + 2) + '╮')
-    )
-  },
-
-  boxBottom: (width: number): string =>
-    c.dim('╰' + '─'.repeat(width + 4) + '╯'),
-
-  boxSep: (width: number): string => c.dim('├' + '─'.repeat(width + 4) + '┤'),
-
-  vbar: c.dim('│'),
-
-  arrow: c.dim('›'),
-  bullet: c.muted('•'),
-  dash: c.dim('─'),
-
-  check: c.success('✓'),
-  cross: c.error('✗'),
-
-  thinking: (label: string) => c.muted(`◌ ${label}`),
-  executing: c.muted('↻'),
-  toolIcon: c.tool('⚡'),
-
-  header: (icon: string, text: string) =>
-    c.muted(icon) + ' ' + chalk.bold.white(text),
-
-  kv: (key: string, value: string) => c.muted(key.padEnd(14)) + c.white(value),
-
-  dimText: (text: string) => c.dim(text),
-  mutedItalic: (text: string) => chalk.italic.dim(text),
-
-  hr: () => c.dim('─'.repeat(74)),
-  sep: () => c.dim('·'),
+// Semantic aliases used throughout components
+export const t = {
+  brand: colors.brand,
+  brandBright: colors.brandBright,
+  accent: colors.accent,
+  success: colors.success,
+  warn: colors.warn,
+  error: colors.error,
+  tool: colors.tool,
+  white: colors.white,
+  muted: colors.muted,
+  dim: colors.dim,
+  user: colors.user,
+  assistant: colors.assistant,
 } as const
 
 export const TERM_WIDTH = 80
 export const CONTENT_WIDTH = 72
-export const INDENT = '  '
