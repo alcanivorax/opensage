@@ -126,12 +126,38 @@ function writeRegistry(registry: ExternalTool[]): void {
 // ─── Manifest fetching ────────────────────────────────────────────────────────
 
 /**
+ * Load and validate a tool.json manifest from a local file path.
+ * Accepts a path to a directory (reads tool.json inside) or a direct .json file.
+ */
+function fetchLocalManifest(localPath: string): ToolManifest | null {
+  const filePath = localPath.endsWith('.json')
+    ? localPath
+    : path.join(localPath, 'tool.json')
+
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8')
+    const data: unknown = JSON.parse(raw)
+    if (!isValidManifest(data)) return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+/**
  * Fetch and validate a tool.json manifest from a GitHub repo.
- * Tries `main` first, then falls back to `master`.
+ * If `repo` starts with `.` or `/` it is treated as a local filesystem path.
+ * Otherwise tries the GitHub raw CDN on `main` then `master`.
  */
 export async function fetchToolManifest(
   repo: string
 ): Promise<ToolManifest | null> {
+  // ── Local path shortcut ────────────────────────────────────────────────────
+  if (repo.startsWith('./') || repo.startsWith('/') || repo === '.') {
+    return fetchLocalManifest(repo)
+  }
+
+  // ── GitHub fetch ───────────────────────────────────────────────────────────
   // Normalise: strip protocol and trailing .git
   const clean = repo
     .replace(/^https?:\/\/github\.com\//, '')
@@ -309,7 +335,7 @@ function interpolateCommand(
 ): string {
   return template.replace(/\$\{input\.(\w+)\}/g, (match, key: string) => {
     const val = input[key]
-    if (val === undefined || val === null) return ''
+    if (val === undefined || val === null) return "''"
     // Wrap in single quotes and escape any embedded single quotes
     const escaped = String(val).replace(/'/g, "'\\''")
     return `'${escaped}'`

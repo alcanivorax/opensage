@@ -6,7 +6,7 @@ import { Box, Text, render, useApp } from 'ink'
 import { loadConfig, resolveApiKey } from './config.js'
 import { Banner } from './ui/banner.js'
 import { UserMessage } from './ui/components/user-message.js'
-import { StatusBar } from './ui/components/status-bar.js'
+
 import { t } from './ui/theme.js'
 import { AgentUI } from './ui/agent.js'
 import { Prompt } from './ui/prompt.js'
@@ -266,14 +266,12 @@ function App({ initialProvider, initialConfig }: AppProps) {
         onConfirm={handleConfirm}
       />
 
-      <Prompt onSubmit={handleSubmit} disabled={busy} />
-
-      <StatusBar
+      <Prompt
+        onSubmit={handleSubmit}
+        disabled={busy}
         model={config.model}
-        provider={config.provider}
         inputTokens={state.totalIn}
         outputTokens={state.totalOut}
-        autoApprove={state.autoApprove}
       />
     </Box>
   )

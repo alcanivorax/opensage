@@ -6,6 +6,9 @@ import { t, CONTENT_WIDTH } from './theme.js'
 interface PromptProps {
   onSubmit: (input: string) => void
   disabled: boolean
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
 }
 
 function Divider() {
@@ -28,8 +31,16 @@ function Footer() {
   )
 }
 
-export function Prompt({ onSubmit, disabled }: PromptProps) {
+export function Prompt({
+  onSubmit,
+  disabled,
+  model = 'unknown',
+  inputTokens = 0,
+  outputTokens = 0,
+}: PromptProps) {
   const [value, setValue] = useState('')
+  const totalTokens = inputTokens + outputTokens
+  const modelShort = model.includes('/') ? model.split('/').pop()! : model
 
   const handleSubmit = useCallback(
     (val: string) => {
@@ -51,7 +62,16 @@ export function Prompt({ onSubmit, disabled }: PromptProps) {
             command
           </Text>
           <Text color={t.dim}>{'  ·  '}</Text>
-          <Text color={t.muted}>locked while assistant is responding</Text>
+          <Text color={t.white}>{modelShort}</Text>
+          <Text color={t.dim}>{'  ·  in '}</Text>
+          <Text color={t.white}>{String(inputTokens)}</Text>
+          <Text color={t.dim}>{'  ·  out '}</Text>
+          <Text color={t.white}>{String(outputTokens)}</Text>
+          <Text color={t.dim}>{'  ·  total '}</Text>
+          <Text color={t.accent}>{String(totalTokens)}</Text>
+          <Box flexGrow={1} />
+          <Text color={t.dim}>command</Text>
+          <Text color={t.dim}> │</Text>
         </Box>
 
         <Box>
@@ -87,7 +107,16 @@ export function Prompt({ onSubmit, disabled }: PromptProps) {
           command
         </Text>
         <Text color={t.dim}>{'  ·  '}</Text>
-        <Text color={t.muted}>ask, edit, inspect, or run a slash command</Text>
+        <Text color={t.white}>{modelShort}</Text>
+        <Text color={t.dim}>{'  ·  in '}</Text>
+        <Text color={t.white}>{String(inputTokens)}</Text>
+        <Text color={t.dim}>{'  ·  out '}</Text>
+        <Text color={t.white}>{String(outputTokens)}</Text>
+        <Text color={t.dim}>{'  ·  total '}</Text>
+        <Text color={t.accent}>{String(totalTokens)}</Text>
+        <Box flexGrow={1} />
+        <Text color={t.dim}>command</Text>
+        <Text color={t.dim}> │</Text>
       </Box>
 
       <Box>
