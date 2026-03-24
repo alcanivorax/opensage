@@ -8,6 +8,7 @@ import type { ProviderName } from './providers/index.js'
 export const CONFIG_DIR = path.join(os.homedir(), '.opensage')
 export const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 export const HISTORY_FILE = path.join(CONFIG_DIR, 'history.json')
+export const TOOLS_DIR = path.join(CONFIG_DIR, 'tools')
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -150,7 +151,11 @@ export function loadConfig(): Config {
 
 export function saveConfig(config: Config): void {
   ensureDir()
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2))
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2))
+  } catch (err) {
+    console.error('[opensage] Failed to save config:', err)
+  }
 }
 
 /**
@@ -203,11 +208,19 @@ export function loadHistory(): HistoryEntry[] {
 export function saveHistory(messages: Message[]): void {
   ensureDir()
   const history = loadHistory()
-  const simplified = messages.map((m) => ({
-    role: m.role,
-    content:
-      typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-  }))
+  const simplified = messages.map((m) => {
+    let content: string
+    if (typeof m.content === 'string') {
+      content = m.content
+    } else {
+      content = JSON.stringify(m.content)
+    }
+    return { role: m.role, content }
+  })
   history.push({ timestamp: new Date().toISOString(), messages: simplified })
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify(history.slice(-50), null, 2))
+  try {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history.slice(-50), null, 2))
+  } catch (err) {
+    console.error('[opensage] Failed to save history:', err)
+  }
 }

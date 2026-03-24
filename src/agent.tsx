@@ -38,9 +38,6 @@ function toolAction(name: string): string {
   return map[name] ?? 'running…'
 }
 
-// ─── runAgentLoop ────────────────────────────────────────────────────────────────
-// Runs the agent loop with callbacks for UI updates.
-
 const MAX_ITERATIONS = 20
 
 export async function runAgentLoop(
@@ -53,16 +50,24 @@ export async function runAgentLoop(
   let lastText = ''
   let inputTokens = 0
   let outputTokens = 0
-  const mcpServers = provider.supportsMcp ? (config.mcpServers ?? []) : []
 
   let confirmResolveRef: ((ok: boolean) => void) | null = null
 
   const setPhase = (p: Phase) => {
     if (p.type === 'tool_confirm') {
       confirmResolveRef = p.onResolve
+    } else {
+      confirmResolveRef = null
     }
     callbacks?.onPhaseChange?.(p)
   }
+
+  if (!provider.supportsMcp && (config.mcpServers?.length ?? 0) > 0) {
+    console.warn(
+      '[opensage] MCP servers configured but not supported by provider'
+    )
+  }
+  const mcpServers = provider.supportsMcp ? (config.mcpServers ?? []) : []
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     setPhase({ type: 'thinking' })
@@ -73,37 +78,42 @@ export async function runAgentLoop(
 
     const streamBuf = { text: '' }
 
-    for await (const event of provider.stream({
-      model: config.model,
-      maxTokens: config.maxTokens,
-      system: config.systemPrompt,
-      messages,
-      tools: toToolDefs(),
-      mcpServers,
-    })) {
-      switch (event.type) {
-        case 'text_delta': {
-          setPhase({ type: 'streaming', text: '' })
-          currentText += event.text
-          streamBuf.text += event.text
-          callbacks?.onStreamText?.(streamBuf.text)
-          break
-        }
-        case 'tool_done': {
-          toolCalls.push({
-            id: event.id,
-            name: event.name,
-            input: event.input,
-            isMcp: event.isMcp,
-          })
-          break
-        }
-        case 'end': {
-          inputTokens += event.inputTokens
-          outputTokens += event.outputTokens
-          break
+    try {
+      for await (const event of provider.stream({
+        model: config.model,
+        maxTokens: config.maxTokens,
+        system: config.systemPrompt,
+        messages,
+        tools: toToolDefs(),
+        mcpServers,
+      })) {
+        switch (event.type) {
+          case 'text_delta': {
+            setPhase({ type: 'streaming', text: '' })
+            currentText += event.text
+            streamBuf.text += event.text
+            callbacks?.onStreamText?.(streamBuf.text)
+            break
+          }
+          case 'tool_done': {
+            toolCalls.push({
+              id: event.id,
+              name: event.name,
+              input: event.input,
+              isMcp: event.isMcp,
+            })
+            break
+          }
+          case 'end': {
+            inputTokens += event.inputTokens
+            outputTokens += event.outputTokens
+            break
+          }
         }
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new Error(`Stream error: ${message}`)
     }
 
     if (currentText) lastText = currentText
@@ -169,8 +179,13 @@ export async function runAgentLoop(
       const action = toolAction(call.name)
       setPhase({ type: 'tool_running', call, action })
 
+      let result: string
       const t0 = Date.now()
-      const result = await executeTool(call.name, call.input)
+      try {
+        result = await executeTool(call.name, call.input)
+      } catch (err) {
+        result = `Error: ${err instanceof Error ? err.message : String(err)}`
+      }
       const elapsed = Date.now() - t0
 
       callbacks?.onToolHistory?.({ call, result, elapsed })

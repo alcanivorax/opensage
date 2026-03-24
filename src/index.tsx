@@ -4,22 +4,22 @@ import * as fs from 'fs'
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { Box, Text, render, useApp } from 'ink'
 import { loadConfig, resolveApiKey } from './config.js'
-import { Banner, Goodbye, UserHeader, VERSION } from './ui/banner.js'
+import { Banner, Goodbye, Help, ToolsList } from './ui/banner.js'
+import { UserMessage } from './ui/components/user-message.js'
+import { StatusBar } from './ui/components/status-bar.js'
 import { t } from './ui/theme.js'
 import { AgentUI } from './ui/agent.js'
 import { Prompt } from './ui/prompt.js'
 import { runAgentLoop } from './agent.js'
-import type { Phase, AgentCallbacks } from './types/agent.js'
+import type { Phase } from './types/agent.js'
 import type { ToolCall } from './providers/index.js'
-import { handleCommand, type CommandResult } from './commands.js'
+import { handleCommand } from './commands.js'
 import { createProvider, detectProvider } from './providers/index.js'
 import { loadMemory, buildMemoryContext } from './tools/memory.js'
 import { runSetupWizard } from './setup.js'
 import type { SessionState } from './commands.js'
 import type { Config } from './config.js'
 import type { Provider } from './providers/index.js'
-
-// ─── Pipe mode ────────────────────────────────────────────────────────────────
 
 async function runPipeMode(provider: Provider, config: Config): Promise<void> {
   const piped = fs.readFileSync('/dev/stdin', 'utf8').trim()
@@ -37,8 +37,6 @@ async function runPipeMode(provider: Provider, config: Config): Promise<void> {
   for (const text of response.textBlocks) process.stdout.write(text)
   process.stdout.write('\n')
 }
-
-// ─── Interactive app ──────────────────────────────────────────────────────────
 
 interface AppProps {
   initialProvider: Provider
@@ -66,8 +64,6 @@ function App({ initialProvider, initialConfig }: AppProps) {
     confirmResolveRef.current = null
   }, [])
 
-  // SessionState lives in a ref-like object so agent/command mutations are
-  // reflected immediately without triggering re-renders on every token.
   const [state] = useState<SessionState>(() => ({
     messages: [],
     totalIn: 0,
@@ -79,7 +75,6 @@ function App({ initialProvider, initialConfig }: AppProps) {
     provider: initialProvider,
   }))
 
-  // Keep state in sync when provider/config change via /setup or /provider
   useEffect(() => {
     state.provider = provider
   }, [provider, state])
@@ -95,7 +90,6 @@ function App({ initialProvider, initialConfig }: AppProps) {
       setCommandOutput(null)
 
       try {
-        // ── Command ──────────────────────────────────────────────────────────
         if (input.startsWith('/')) {
           const result = await handleCommand(input, state)
 
@@ -128,13 +122,11 @@ function App({ initialProvider, initialConfig }: AppProps) {
               return
           }
         } else {
-          // ── User message ─────────────────────────────────────────────────
           state.lastUserMessage = input
           state.messages.push({ role: 'user', content: input })
           setUserMessages((prev) => [...prev, input])
         }
 
-        // ── Agent loop ───────────────────────────────────────────────────────
         setAgentPhase({ type: 'thinking' })
         setStreamText('')
         setToolHistory([])
@@ -162,7 +154,6 @@ function App({ initialProvider, initialConfig }: AppProps) {
           state.totalOut += outputTokens
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err)
-          // Pop the user message that failed so it can be retried cleanly
           state.messages.pop()
           render(
             <Box marginTop={1}>
@@ -187,11 +178,7 @@ function App({ initialProvider, initialConfig }: AppProps) {
       />
       {commandOutput}
       {userMessages.map((msg, i) => (
-        <Box key={i} marginTop={1}>
-          <Text color={t.user}>{' you'}</Text>
-          <Text color={t.dim}>{' › '}</Text>
-          <Text>{msg}</Text>
-        </Box>
+        <UserMessage key={i} content={msg} />
       ))}
       <AgentUI
         phase={agentPhase}
@@ -201,11 +188,16 @@ function App({ initialProvider, initialConfig }: AppProps) {
         onConfirm={handleConfirm}
       />
       <Prompt onSubmit={handleSubmit} disabled={busy} />
+      <StatusBar
+        model={config.model}
+        provider={config.provider}
+        inputTokens={state.totalIn}
+        outputTokens={state.totalOut}
+        autoApprove={state.autoApprove}
+      />
     </Box>
   )
 }
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   let config = loadConfig()
@@ -233,7 +225,6 @@ async function main(): Promise<void> {
         : 'claude-sonnet-4-20250514'
   }
 
-  // Inject memory into system prompt before first render
   const memories = loadMemory()
   if (memories.length > 0) {
     config.systemPrompt += buildMemoryContext(memories)
@@ -246,14 +237,12 @@ async function main(): Promise<void> {
     return
   }
 
-  // Interactive Ink app — waits until exit() is called from within
   await new Promise<void>((resolve) => {
     const { unmount } = render(
       <App initialProvider={provider} initialConfig={config} />,
       { exitOnCtrlC: true }
     )
 
-    // exitOnCtrlC triggers process exit directly; this handles /exit
     process.on('exit', () => {
       unmount()
       resolve()

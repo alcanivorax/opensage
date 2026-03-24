@@ -42,17 +42,14 @@ export class OpenRouterProvider implements Provider {
       const toolResults = m.content.filter((b: any) => b.type === 'tool_result')
       if (toolResults.length > 0) {
         // OpenAI expects one "tool" message per tool call result
-        // Return the first one; multi-result turns are serialised below
+        // Return the first one for now; handle multiple results in the caller
         return {
           role: 'tool' as any,
           tool_call_id: toolResults[0].tool_use_id,
-          content: toolResults
-            .map((r: any) =>
-              typeof r.content === 'string'
-                ? r.content
-                : JSON.stringify(r.content)
-            )
-            .join('\n'),
+          content:
+            typeof toolResults[0].content === 'string'
+              ? toolResults[0].content
+              : JSON.stringify(toolResults[0].content),
         } as any
       }
 

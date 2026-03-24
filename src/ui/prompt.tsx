@@ -20,7 +20,16 @@ export function Prompt({ onSubmit, disabled }: PromptProps) {
     [onSubmit]
   )
 
-  if (disabled) return null
+  if (disabled) {
+    return (
+      <Box marginTop={1}>
+        <Text color={t.dim}>{' you › '}</Text>
+        <Text color={t.dim} italic>
+          {'waiting for response…'}
+        </Text>
+      </Box>
+    )
+  }
 
   return (
     <Box marginTop={1}>
@@ -31,6 +40,7 @@ export function Prompt({ onSubmit, disabled }: PromptProps) {
         onChange={setValue}
         onSubmit={handleSubmit}
         placeholder="ask anything…"
+        mask=""
       />
     </Box>
   )

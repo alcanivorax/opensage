@@ -1,23 +1,20 @@
 import React, { useCallback } from 'react'
 import { Box, Text, useInput } from 'ink'
-import { t, CONTENT_WIDTH } from './theme.js'
-import { AssistantHeader } from './banner.js'
+import { t } from './theme.js'
 import {
-  ThinkingSpinner,
-  MarkdownView,
+  AssistantMessage,
+  ToolCallBox,
+  ToolResultBox,
+  ThinkingIndicator,
   ConfirmDialog,
-  ToolResult,
-  TokenFooter,
-} from './render.js'
-import { toolLabel } from '../tools/index.js'
-import type { Phase, AgentCallbacks } from '../types/agent.js'
+} from './components/index.js'
+import { MarkdownView } from './render.js'
+import type { Phase } from '../types/agent.js'
 import type { ToolCall } from '../providers/index.js'
-
-const CODE_W = CONTENT_WIDTH - 4
 
 function buildConfirmDetails(
   call: ToolCall,
-  sensitiveTools: string[]
+  _sensitiveTools: string[]
 ): Record<string, string> {
   const { name, input } = call
 
@@ -46,33 +43,7 @@ function buildConfirmDetails(
   if (name === 'run_command')
     return { Command: String(input['command'] ?? '').slice(0, 60) }
 
-  return { Preview: toolLabel(name, input).slice(0, 80) }
-}
-
-function ToolCallBox({ call }: { call: ToolCall }) {
-  const hint = toolLabel(call.name, call.input)
-  const W = 64
-  return (
-    <Box flexDirection="column">
-      <Text color={t.dim}>{'  ┌' + '─'.repeat(W) + '┐'}</Text>
-      <Text color={t.dim}>{'  │'}</Text>
-      <Box>
-        <Text color={t.dim}>{'  │ '}</Text>
-        {call.isMcp ? (
-          <Text color={t.assistant}>✉ </Text>
-        ) : (
-          <Text color={t.tool}>⚡ </Text>
-        )}
-        <Text color={t.white} bold>
-          {call.name}
-        </Text>
-        <Text color={t.dim}> · </Text>
-        <Text color={t.muted}>{hint.slice(0, 35)}</Text>
-      </Box>
-      <Text color={t.dim}>{'  │'}</Text>
-      <Text color={t.dim}>{'  └' + '─'.repeat(W) + '┘'}</Text>
-    </Box>
-  )
+  return {}
 }
 
 const COMPACT_TOOLS = new Set(['web_search', 'web_fetch', 'read_file'])
@@ -103,54 +74,56 @@ export function AgentUI({
     }
   })
 
+  const showAssistant = phase.type !== 'idle'
+
   return (
     <Box flexDirection="column">
-      <AssistantHeader model={model} />
+      {showAssistant && (
+        <AssistantMessage model={model} phase={phase}>
+          {phase.type === 'thinking' && <ThinkingIndicator />}
 
-      {phase.type === 'thinking' && <ThinkingSpinner />}
+          {toolHistory.map((h, i) => (
+            <Box key={i} flexDirection="column" marginTop={1}>
+              <ToolCallBox call={h.call} status="done" />
+              <ToolResultBox
+                call={h.call}
+                result={h.result}
+                elapsed={h.elapsed}
+                status={h.result.startsWith('Error:') ? 'error' : 'success'}
+              />
+            </Box>
+          ))}
 
-      {toolHistory.map((h, i) => (
-        <Box flexDirection="column" key={i}>
-          <ToolCallBox call={h.call} />
-          <ToolResult
-            toolName={h.call.name}
-            result={h.result}
-            elapsed={h.elapsed}
-            compact={COMPACT_TOOLS.has(h.call.name)}
-          />
-        </Box>
-      ))}
+          {phase.type === 'tool_confirm' && (
+            <Box flexDirection="column" marginTop={1}>
+              <ToolCallBox call={phase.call} status="pending" />
+              <ConfirmDialog
+                name={phase.call.name}
+                details={buildConfirmDetails(phase.call, [])}
+                sensitive={false}
+              />
+            </Box>
+          )}
 
-      {phase.type === 'tool_confirm' && (
-        <Box flexDirection="column">
-          <ToolCallBox call={phase.call} />
-          <ConfirmDialog
-            name={phase.call.name}
-            details={buildConfirmDetails(phase.call, [])}
-            sensitive={false}
-          />
-        </Box>
-      )}
+          {phase.type === 'tool_running' && (
+            <Box marginTop={1}>
+              <ToolCallBox
+                call={phase.call}
+                status="running"
+                action={phase.action}
+              />
+            </Box>
+          )}
 
-      {phase.type === 'tool_running' && (
-        <Box flexDirection="column">
-          <ToolCallBox call={phase.call} />
-          <Box>
-            <Text color={t.dim}>{'  │ '}</Text>
-            <Text color={t.muted}>↻ {phase.action}</Text>
-          </Box>
-        </Box>
-      )}
-
-      {(phase.type === 'streaming' || phase.type === 'done' || streamText) &&
-        streamText.length > 0 && <MarkdownView text={streamText} />}
-
-      {phase.type === 'done' && (
-        <TokenFooter
-          inputTokens={phase.inputTokens}
-          outputTokens={phase.outputTokens}
-          providerName={phase.providerName}
-        />
+          {(phase.type === 'streaming' ||
+            phase.type === 'done' ||
+            streamText) &&
+            streamText.length > 0 && (
+              <Box marginTop={1}>
+                <MarkdownView text={streamText} />
+              </Box>
+            )}
+        </AssistantMessage>
       )}
     </Box>
   )

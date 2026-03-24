@@ -125,7 +125,8 @@ export async function executeTool(
       return saveMemoryTool(input as any)
 
     default:
-      return `Unknown tool: ${name}`
+      const available = TOOLS.map((t) => t.name).join(', ')
+      return `Unknown tool: ${name}. Available: ${available}`
   }
 }
 

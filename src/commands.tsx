@@ -22,6 +22,13 @@ import {
   detectProvider,
   createProvider,
 } from './providers/index.js'
+import {
+  getModelGroups,
+  flattenModels,
+  getModelByIndex,
+  searchModels,
+  type ModelEntry,
+} from './models/index.js'
 import { runSetupWizard } from './setup.js'
 import {
   loadCreds,
@@ -31,7 +38,7 @@ import {
   isGmailConfigured,
 } from './tools/gmail.js'
 import type { Config, Message } from './config.js'
-import type { Provider } from './providers/index.js'
+import type { Provider, ProviderName } from './providers/index.js'
 
 export interface SessionState {
   messages: Message[]
@@ -297,7 +304,7 @@ export async function handleCommand(
         return out(<Warn msg="Nothing to retry" />)
       }
       const msg = state.messages[foundIdx].content as string
-      state.messages.splice(foundIdx)
+      state.messages.splice(foundIdx, 1)
       return out(
         <Box marginLeft={2}>
           <Text color={t.muted}>
@@ -575,6 +582,124 @@ export async function handleCommand(
       )
     }
 
+    case '/models': {
+      const groups = getModelGroups()
+      const allModels = flattenModels(groups)
+
+      if (!arg) {
+        return out(
+          <Box flexDirection="column">
+            <SectionTitle title="All Available Models" />
+            <Box marginTop={1} marginLeft={2} flexDirection="column">
+              {groups.map((group) => (
+                <Box key={group.provider} flexDirection="column">
+                  <Box marginTop={1}>
+                    <Text color={t.accent}>{group.label}</Text>
+                    <Text color={t.muted}>
+                      {' (' + group.models.length + ' models)'}
+                    </Text>
+                  </Box>
+                  {group.models.map((m, i) => {
+                    const active = m.id === state.config.model
+                    return (
+                      <Box key={m.id} marginLeft={2}>
+                        <Text color={active ? t.success : t.dim}>
+                          {active ? '● ' : '  '}
+                        </Text>
+                        <Text color={t.muted}>
+                          {String(
+                            allModels.findIndex((am) => am.id === m.id) + 1
+                          ).padStart(2) + '. '}
+                        </Text>
+                        <Text color={t.white}>{m.label}</Text>
+                      </Box>
+                    )
+                  })}
+                </Box>
+              ))}
+            </Box>
+            <Box marginTop={1} marginLeft={2}>
+              <Text color={t.muted}>{'Usage: '}</Text>
+              <Text color={t.accent}>{'/models <number>'}</Text>
+              <Text color={t.muted}>{' or '}</Text>
+              <Text color={t.accent}>{'/models <name>'}</Text>
+            </Box>
+          </Box>
+        )
+      }
+
+      const num = parseInt(arg, 10)
+      let selectedModel: ModelEntry | null = null
+
+      if (!isNaN(num) && num >= 1 && num <= allModels.length) {
+        selectedModel = allModels[num - 1]
+      } else {
+        selectedModel = searchModels(groups, arg)[0] || null
+      }
+
+      if (!selectedModel) {
+        return out(
+          <Err msg={'Model not found. Use /models to see available options.'} />
+        )
+      }
+
+      const apiKey =
+        selectedModel.provider === 'anthropic'
+          ? (state.config.apiKeys.anthropic ?? process.env['ANTHROPIC_API_KEY'])
+          : (state.config.apiKeys.openrouter ??
+            process.env['OPENROUTER_API_KEY'])
+
+      if (!apiKey) {
+        return out(
+          <Box flexDirection="column" marginTop={1} marginLeft={2}>
+            <Err msg={'No API key for ' + selectedModel.provider + '.'} />
+            {selectedModel.provider === 'anthropic' ? (
+              <Box>
+                <Text color={t.muted}>{'Set: '}</Text>
+                <Text color={t.accent}>
+                  {'export ANTHROPIC_API_KEY=sk-ant-…'}
+                </Text>
+              </Box>
+            ) : (
+              <Box flexDirection="column">
+                <Box>
+                  <Text color={t.muted}>{'Get a free key: '}</Text>
+                  <Text color={t.accent}>{'https://openrouter.ai/keys'}</Text>
+                </Box>
+                <Box>
+                  <Text color={t.muted}>{'Set: '}</Text>
+                  <Text color={t.accent}>
+                    {'export OPENROUTER_API_KEY=sk-or-…'}
+                  </Text>
+                </Box>
+              </Box>
+            )}
+          </Box>
+        )
+      }
+
+      state.config.provider = selectedModel.provider
+      state.config.model = selectedModel.id
+      state.provider = createProvider({
+        provider: selectedModel.provider,
+        apiKey,
+      })
+      saveConfig(state.config)
+      return out(
+        <Box marginTop={1} marginLeft={2} flexDirection="column">
+          <Box>
+            <Text color={t.success}>{'✓ Switched to '}</Text>
+            <Text color={t.white}>{selectedModel.provider}</Text>
+            <Text color={t.muted}>{'  ·  '}</Text>
+            <Text color={t.accent}>{selectedModel.label}</Text>
+          </Box>
+          {!state.provider.supportsMcp && (
+            <Warn msg="MCP (Gmail / Calendar) not available on OpenRouter" />
+          )}
+        </Box>
+      )
+    }
+
     case '/apikey': {
       if (!arg) {
         const ak = state.config.apiKeys
@@ -652,9 +777,6 @@ export async function handleCommand(
 
     case '/help':
       return out(<Help />)
-
-    case '/tools':
-      return out(<ToolsList mcpServers={state.config.mcpServers ?? []} />)
 
     case '/accounts': {
       const servers = state.config.mcpServers ?? []

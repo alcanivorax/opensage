@@ -123,12 +123,19 @@ function ProviderStep({
   onSelect: (provider: ProviderName) => void
 }) {
   const [input, setInput] = useState('')
+  const [error, setError] = useState('')
 
   const handleSubmit = useCallback(
     (val: string) => {
-      const n = parseInt(val.trim(), 10)
-      if (n >= 1 && n <= PROVIDERS.length) {
-        onSelect(PROVIDERS[n - 1].id)
+      const trimmed = val.trim()
+      const n = parseInt(trimmed, 10)
+      if (trimmed !== '' && (isNaN(n) || n < 1 || n > PROVIDERS.length)) {
+        setError(`Enter 1-${PROVIDERS.length}`)
+        return
+      }
+      setError('')
+      if (trimmed === '' || (n >= 1 && n <= PROVIDERS.length)) {
+        onSelect(PROVIDERS[(n || 1) - 1].id)
       }
     },
     [onSelect]
@@ -151,11 +158,20 @@ function ProviderStep({
         <Text color={t.dim}>{'› '}</Text>
         <TextInput
           value={input}
-          onChange={setInput}
+          onChange={(v) => {
+            setInput(v)
+            setError('')
+          }}
           onSubmit={handleSubmit}
           placeholder="1"
         />
       </Box>
+
+      {error.length > 0 && (
+        <Box marginLeft={2} marginTop={1}>
+          <Text color={t.warn}>{error}</Text>
+        </Box>
+      )}
     </Box>
   )
 }
@@ -223,6 +239,7 @@ function ModelStep({
   onSelect: (modelId: string) => void
 }) {
   const [input, setInput] = useState('')
+  const [error, setError] = useState('')
   const models =
     provider === 'anthropic' ? ANTHROPIC_MODELS : OPENROUTER_FREE_MODELS
   const visible = models.slice(0, 5)
@@ -235,9 +252,12 @@ function ModelStep({
         return
       }
       const n = parseInt(trimmed, 10)
-      if (n >= 1 && n <= visible.length) {
-        onSelect(models[n - 1].id)
+      if (isNaN(n) || n < 1 || n > visible.length) {
+        setError(`Enter 1-${visible.length}`)
+        return
       }
+      setError('')
+      onSelect(models[n - 1].id)
     },
     [models, onSelect, visible.length]
   )
@@ -274,11 +294,20 @@ function ModelStep({
         <Text color={t.dim}>{'› '}</Text>
         <TextInput
           value={input}
-          onChange={setInput}
+          onChange={(v) => {
+            setInput(v)
+            setError('')
+          }}
           onSubmit={handleSubmit}
           placeholder="1"
         />
       </Box>
+
+      {error.length > 0 && (
+        <Box marginLeft={2} marginTop={1}>
+          <Text color={t.warn}>{error}</Text>
+        </Box>
+      )}
     </Box>
   )
 }

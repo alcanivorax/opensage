@@ -16,25 +16,11 @@ export interface ProviderConfig {
 // ─── Free / cheap models available on OpenRouter ─────────────────────────────
 
 export const OPENROUTER_FREE_MODELS: { id: string; label: string }[] = [
+  { id: 'stepfun/step-3.5-flash:free', label: 'Step Fun (free)' },
   {
-    id: 'nvidia/nemotron-3-super-120b-a12b:free',
-    label: 'Gemini 2.0 Flash (free)',
+    id: 'qwen/qwen3-coder:free',
+    label: 'Qwen (free)',
   },
-  { id: 'google/gemini-flash-1.5:free', label: 'Gemini 1.5 Flash (free)' },
-  {
-    id: 'meta-llama/llama-3.3-70b-instruct:free',
-    label: 'Llama 3.3 70B (free)',
-  },
-  { id: 'meta-llama/llama-3.1-8b-instruct:free', label: 'Llama 3.1 8B (free)' },
-  { id: 'mistralai/mistral-7b-instruct:free', label: 'Mistral 7B (free)' },
-  { id: 'deepseek/deepseek-r1:free', label: 'DeepSeek R1 (free)' },
-  { id: 'deepseek/deepseek-chat:free', label: 'DeepSeek V3 (free)' },
-  { id: 'qwen/qwen-2.5-72b-instruct:free', label: 'Qwen 2.5 72B (free)' },
-  {
-    id: 'microsoft/phi-3-medium-128k-instruct:free',
-    label: 'Phi-3 Medium (free)',
-  },
-  { id: 'openchat/openchat-7b:free', label: 'OpenChat 7B (free)' },
 ]
 
 export const ANTHROPIC_MODELS: { id: string; label: string }[] = [
