@@ -77,7 +77,11 @@ async function cliAdd(args: string[]): Promise<void> {
 
   if (args.length === 0) {
     // opensage add  →  install everything from default repo
-  } else if (args[0].includes('/') || args[0].startsWith('./') || args[0].startsWith('/')) {
+  } else if (
+    args[0].includes('/') ||
+    args[0].startsWith('./') ||
+    args[0].startsWith('/')
+  ) {
     // opensage add owner/repo [tool]
     // opensage add ./local/path [tool]
     repo = args[0]
@@ -87,17 +91,16 @@ async function cliAdd(args: string[]): Promise<void> {
     toolName = args[0]
   }
 
-  const target = toolName
-    ? chalk.cyan(toolName)
-    : chalk.dim('all tools')
+  const target = toolName ? chalk.cyan(toolName) : chalk.dim('all tools')
 
-  const from =
-    repo === DEFAULT_REPO
-      ? chalk.dim(repo)
-      : chalk.yellow(repo)
+  const from = repo === DEFAULT_REPO ? chalk.dim(repo) : chalk.yellow(repo)
 
   process.stdout.write(
-    chalk.dim('  Fetching ') + target + chalk.dim(' from ') + from + chalk.dim('…\n')
+    chalk.dim('  Fetching ') +
+      target +
+      chalk.dim(' from ') +
+      from +
+      chalk.dim('…\n')
   )
 
   let result: Awaited<ReturnType<typeof installTool>>
@@ -139,7 +142,9 @@ async function cliAdd(args: string[]): Promise<void> {
   if (installed.length > 1) {
     process.stdout.write('\n')
     for (const name of installed) {
-      process.stdout.write(chalk.dim('    ') + chalk.green('●') + ' ' + chalk.white(name) + '\n')
+      process.stdout.write(
+        chalk.dim('    ') + chalk.green('●') + ' ' + chalk.white(name) + '\n'
+      )
     }
   }
 }
@@ -155,7 +160,11 @@ function cliRemove(args: string[]): void {
     )
     const installed = listExternalTools()
     if (installed.length > 0) {
-      process.stdout.write(chalk.dim('\n  Installed: ') + installed.map((t) => t.name).join(', ') + '\n')
+      process.stdout.write(
+        chalk.dim('\n  Installed: ') +
+          installed.map((t) => t.name).join(', ') +
+          '\n'
+      )
     }
     process.exitCode = 1
     return
@@ -164,7 +173,9 @@ function cliRemove(args: string[]): void {
   const ok = removeTool(toolName)
 
   if (ok) {
-    process.stdout.write(chalk.green('  ✓ ') + 'Removed: ' + chalk.cyan(toolName) + '\n')
+    process.stdout.write(
+      chalk.green('  ✓ ') + 'Removed: ' + chalk.cyan(toolName) + '\n'
+    )
   } else {
     process.stderr.write(chalk.red('  ✗ ') + `Tool not found: ${toolName}\n`)
     process.exitCode = 1
@@ -185,12 +196,18 @@ function cliList(): void {
         chalk.dim(DEFAULT_REPO) +
         '\n\n'
     )
-    process.stdout.write(chalk.dim('  Available: ') + KNOWN_TOOLS.map((t) => chalk.cyan(t)).join(chalk.dim(', ')) + '\n\n')
+    process.stdout.write(
+      chalk.dim('  Available: ') +
+        KNOWN_TOOLS.map((t) => chalk.cyan(t)).join(chalk.dim(', ')) +
+        '\n\n'
+    )
     return
   }
 
   process.stdout.write('\n')
-  process.stdout.write(chalk.bold(`  Installed tools`) + chalk.dim(` (${tools.length})\n\n`))
+  process.stdout.write(
+    chalk.bold(`  Installed tools`) + chalk.dim(` (${tools.length})\n\n`)
+  )
 
   // Group by source repo for cleaner output
   const bySource = new Map<string, typeof tools>()
@@ -208,7 +225,11 @@ function cliList(): void {
           chalk.green('●') +
           ' ' +
           chalk.cyan(tool.name.padEnd(16)) +
-          chalk.dim(tool.description.length > 60 ? tool.description.slice(0, 57) + '…' : tool.description) +
+          chalk.dim(
+            tool.description.length > 60
+              ? tool.description.slice(0, 57) + '…'
+              : tool.description
+          ) +
           '\n'
       )
     }
@@ -268,13 +289,53 @@ function guessGroup(name: string): string | null {
   if (lower.startsWith('docker_')) return 'docker'
   if (lower.startsWith('npm_')) return 'npm'
   if (lower.startsWith('http_')) return 'http'
-  if (['ping_host', 'dns_lookup', 'open_ports'].includes(lower)) return 'network'
-  if (['search_code', 'find_files', 'count_lines', 'diff_files', 'sort_lines', 'csv_preview', 'compress', 'extract', 'image_info'].includes(lower)) return 'filesystem'
+  if (['ping_host', 'dns_lookup', 'open_ports'].includes(lower))
+    return 'network'
+  if (
+    [
+      'search_code',
+      'find_files',
+      'count_lines',
+      'diff_files',
+      'sort_lines',
+      'csv_preview',
+      'compress',
+      'extract',
+      'image_info',
+    ].includes(lower)
+  )
+    return 'filesystem'
   if (['list_processes', 'kill_process'].includes(lower)) return 'process'
   if (['disk_usage', 'system_info', 'env_get'].includes(lower)) return 'system'
-  if (['base64_encode', 'base64_decode', 'url_encode', 'jwt_decode'].includes(lower)) return 'encode'
+  if (
+    ['base64_encode', 'base64_decode', 'url_encode', 'jwt_decode'].includes(
+      lower
+    )
+  )
+    return 'encode'
   if (['sha256', 'md5'].includes(lower)) return 'hash'
-  if (['json_query', 'yaml_to_json', 'json_to_yaml', 'calc', 'regex_test', 'color_convert'].includes(lower)) return 'data'
-  if (['weather', 'ip_info', 'timestamp', 'uuid', 'qr_code', 'lorem_ipsum', 'cron_next'].includes(lower)) return 'productivity'
+  if (
+    [
+      'json_query',
+      'yaml_to_json',
+      'json_to_yaml',
+      'calc',
+      'regex_test',
+      'color_convert',
+    ].includes(lower)
+  )
+    return 'data'
+  if (
+    [
+      'weather',
+      'ip_info',
+      'timestamp',
+      'uuid',
+      'qr_code',
+      'lorem_ipsum',
+      'cron_next',
+    ].includes(lower)
+  )
+    return 'productivity'
   return null
 }
