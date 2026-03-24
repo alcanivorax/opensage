@@ -1,6 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { t, colors } from '../theme.js'
+import { t, CONTENT_WIDTH } from '../theme.js'
 
 interface StatusBarProps {
   model: string
@@ -11,68 +11,117 @@ interface StatusBarProps {
   shortcuts?: boolean
 }
 
+function fmtTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+  return String(value)
+}
+
+function FooterDivider() {
+  return (
+    <Box marginTop={1}>
+      <Text color={t.dim}>╭</Text>
+      <Text color={t.border}>{'─'.repeat(CONTENT_WIDTH)}</Text>
+      <Text color={t.dim}>╮</Text>
+    </Box>
+  )
+}
+
+function FooterEnd() {
+  return (
+    <Box>
+      <Text color={t.dim}>╰</Text>
+      <Text color={t.border}>{'─'.repeat(CONTENT_WIDTH)}</Text>
+      <Text color={t.dim}>╯</Text>
+    </Box>
+  )
+}
+
+function Dot({ color = t.dim }: { color?: string }) {
+  return <Text color={color}>{' • '}</Text>
+}
+
 export function StatusBar({
   model,
   provider,
   inputTokens,
   outputTokens,
-  autoApprove,
+  autoApprove = false,
   shortcuts = true,
 }: StatusBarProps) {
   const totalTokens = inputTokens + outputTokens
-  const fmt = (n: number) =>
-    n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
-
   const modelShort = model.includes('/') ? model.split('/').pop()! : model
 
   return (
     <Box flexDirection="column">
-      <Box
-        borderTop={`1px ${t.border}` as any}
-        paddingTop={1}
-        justifyContent="space-between"
-      >
-        <Box>
-          <Text color={colors.brand}>◆</Text>
-          <Text color={t.muted}> opensage</Text>
-          <Text color={t.dim}> · </Text>
-          <Text color={t.white}>{modelShort}</Text>
-          <Text color={t.dim}> · </Text>
-          <Text color={t.muted}>{provider}</Text>
-        </Box>
-        <Box>
-          {autoApprove && (
-            <>
-              <Text color={t.success}>auto</Text>
-              <Text color={t.dim}> · </Text>
-            </>
-          )}
-          <Text color={t.muted}>in:</Text>
-          <Text color={t.white}>{fmt(inputTokens)}</Text>
-          <Text color={t.dim}> out:</Text>
-          <Text color={t.white}>{fmt(outputTokens)}</Text>
-          <Text color={t.dim}> total:</Text>
-          <Text color={t.accent}>{fmt(totalTokens)}</Text>
-        </Box>
+      <FooterDivider />
+
+      <Box>
+        <Text color={t.dim}>│ </Text>
+
+        <Text color={t.brandBright} bold>
+          opensage
+        </Text>
+
+        <Dot />
+
+        <Text color={t.white}>{modelShort}</Text>
+
+        <Dot />
+
+        <Text color={t.accent}>{provider}</Text>
+
+        <Dot />
+
+        <Text color={autoApprove ? t.success : t.dim}>
+          {autoApprove ? 'auto-approve on' : 'auto-approve off'}
+        </Text>
+
+        <Box flexGrow={1} />
+
+        <Text color={t.dim}>in </Text>
+        <Text color={t.white}>{fmtTokens(inputTokens)}</Text>
+
+        <Dot />
+
+        <Text color={t.dim}>out </Text>
+        <Text color={t.white}>{fmtTokens(outputTokens)}</Text>
+
+        <Dot />
+
+        <Text color={t.dim}>total </Text>
+        <Text color={t.accent}>{fmtTokens(totalTokens)}</Text>
+
+        <Text color={t.dim}> │</Text>
       </Box>
+
       {shortcuts && (
-        <Box paddingTop={1} justifyContent="space-between">
-          <Box>
-            <Text color={t.dim}>ctrl+c </Text>
-            <Text color={t.muted}>interrupt</Text>
-            <Text color={t.dim}> · </Text>
-            <Text color={t.dim}>/help </Text>
-            <Text color={t.muted}>commands</Text>
-          </Box>
-          <Box>
-            <Text color={t.dim}>/models </Text>
-            <Text color={t.muted}>change model</Text>
-            <Text color={t.dim}> · </Text>
-            <Text color={t.dim}>/clear </Text>
-            <Text color={t.muted}>new chat</Text>
-          </Box>
+        <Box>
+          <Text color={t.dim}>│ </Text>
+
+          <Text color={t.subtle}>ctrl+c</Text>
+          <Text color={t.dim}>{' interrupt'}</Text>
+
+          <Dot />
+
+          <Text color={t.subtle}>/help</Text>
+          <Text color={t.dim}>{' commands'}</Text>
+
+          <Dot />
+
+          <Text color={t.subtle}>/models</Text>
+          <Text color={t.dim}>{' switch model'}</Text>
+
+          <Dot />
+
+          <Text color={t.subtle}>/clear</Text>
+          <Text color={t.dim}>{' new chat'}</Text>
+
+          <Text color={t.dim}> │</Text>
         </Box>
       )}
+
+      <FooterEnd />
     </Box>
   )
 }

@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { Box, Text, render, useApp } from 'ink'
 import { loadConfig, resolveApiKey } from './config.js'
-import { Banner, Goodbye, Help, ToolsList } from './ui/banner.js'
+import { Banner } from './ui/banner.js'
 import { UserMessage } from './ui/components/user-message.js'
 import { StatusBar } from './ui/components/status-bar.js'
 import { t } from './ui/theme.js'
@@ -13,11 +13,11 @@ import { Prompt } from './ui/prompt.js'
 import { runAgentLoop } from './agent.js'
 import type { Phase } from './types/agent.js'
 import type { ToolCall } from './providers/index.js'
-import { handleCommand } from './commands.js'
+import { handleCommand } from './commands/index.js'
 import { createProvider, detectProvider } from './providers/index.js'
 import { loadMemory, buildMemoryContext } from './tools/memory.js'
 import { runSetupWizard } from './setup.js'
-import type { SessionState } from './commands.js'
+import type { SessionState } from './commands/index.js'
 import type { Config } from './config.js'
 import type { Provider } from './providers/index.js'
 
@@ -43,6 +43,30 @@ interface AppProps {
   initialConfig: Config
 }
 
+interface ToolHistoryEntry {
+  call: ToolCall
+  result: string
+  elapsed: number
+}
+
+type TranscriptEntry =
+  | {
+      id: string
+      kind: 'user'
+      content: string
+    }
+  | {
+      id: string
+      kind: 'assistant'
+      model: string
+      text: string
+      toolHistory: ToolHistoryEntry[]
+    }
+
+function makeId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 function App({ initialProvider, initialConfig }: AppProps) {
   const { exit } = useApp()
 
@@ -52,11 +76,10 @@ function App({ initialProvider, initialConfig }: AppProps) {
 
   const [agentPhase, setAgentPhase] = useState<Phase>({ type: 'idle' })
   const [streamText, setStreamText] = useState('')
-  const [toolHistory, setToolHistory] = useState<
-    Array<{ call: ToolCall; result: string; elapsed: number }>
-  >([])
+  const [toolHistory, setToolHistory] = useState<ToolHistoryEntry[]>([])
   const [commandOutput, setCommandOutput] = useState<React.ReactNode>(null)
-  const [userMessages, setUserMessages] = useState<string[]>([])
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
+
   const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null)
 
   const handleConfirm = useCallback((ok: boolean) => {
@@ -86,6 +109,7 @@ function App({ initialProvider, initialConfig }: AppProps) {
   const handleSubmit = useCallback(
     async (input: string) => {
       if (busy) return
+
       setBusy(true)
       setCommandOutput(null)
 
@@ -112,6 +136,14 @@ function App({ initialProvider, initialConfig }: AppProps) {
             case 'retry':
               state.lastUserMessage = result.message
               state.messages.push({ role: 'user', content: result.message })
+              setTranscript((prev) => [
+                ...prev,
+                {
+                  id: makeId('user'),
+                  kind: 'user',
+                  content: result.message,
+                },
+              ])
               break
 
             default:
@@ -124,7 +156,14 @@ function App({ initialProvider, initialConfig }: AppProps) {
         } else {
           state.lastUserMessage = input
           state.messages.push({ role: 'user', content: input })
-          setUserMessages((prev) => [...prev, input])
+          setTranscript((prev) => [
+            ...prev,
+            {
+              id: makeId('user'),
+              kind: 'user',
+              content: input,
+            },
+          ])
         }
 
         setAgentPhase({ type: 'thinking' })
@@ -145,16 +184,36 @@ function App({ initialProvider, initialConfig }: AppProps) {
                 setAgentPhase(phase)
               },
               onStreamText: setStreamText,
-              onToolHistory: (h) => setToolHistory((prev) => [...prev, h]),
+              onToolHistory: (h) =>
+                setToolHistory((prev) => {
+                  const next = [...prev, h]
+                  return next
+                }),
             }
           )
 
           state.lastResponse = lastText
           state.totalIn += inputTokens
           state.totalOut += outputTokens
+
+          setTranscript((prev) => [
+            ...prev,
+            {
+              id: makeId('assistant'),
+              kind: 'assistant',
+              model: state.config.model,
+              text: lastText,
+              toolHistory: [...toolHistory],
+            },
+          ])
+
+          setAgentPhase({ type: 'idle' })
+          setStreamText('')
+          setToolHistory([])
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err)
           state.messages.pop()
+
           render(
             <Box marginTop={1}>
               <Text color={t.error}>{'✗ '}</Text>
@@ -166,7 +225,7 @@ function App({ initialProvider, initialConfig }: AppProps) {
         setBusy(false)
       }
     },
-    [busy, exit, state]
+    [busy, exit, state, toolHistory]
   )
 
   return (
@@ -176,10 +235,29 @@ function App({ initialProvider, initialConfig }: AppProps) {
         model={config.model}
         mcpServers={config.mcpServers ?? []}
       />
+
       {commandOutput}
-      {userMessages.map((msg, i) => (
-        <UserMessage key={i} content={msg} />
-      ))}
+
+      {transcript.map((entry) =>
+        entry.kind === 'user' ? (
+          <UserMessage key={entry.id} content={entry.content} />
+        ) : (
+          <AgentUI
+            key={entry.id}
+            phase={{
+              type: 'done',
+              inputTokens: 0,
+              outputTokens: 0,
+              providerName: provider.name,
+            }}
+            model={entry.model}
+            streamText={entry.text}
+            toolHistory={entry.toolHistory}
+            onConfirm={handleConfirm}
+          />
+        )
+      )}
+
       <AgentUI
         phase={agentPhase}
         model={config.model}
@@ -187,7 +265,9 @@ function App({ initialProvider, initialConfig }: AppProps) {
         toolHistory={toolHistory}
         onConfirm={handleConfirm}
       />
+
       <Prompt onSubmit={handleSubmit} disabled={busy} />
+
       <StatusBar
         model={config.model}
         provider={config.provider}
