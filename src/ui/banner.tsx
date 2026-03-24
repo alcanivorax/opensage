@@ -1,7 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { colors, t, CONTENT_WIDTH } from './theme.js'
-import { TOOLS } from '../tools/index.js'
+import { TOOLS, getAllTools } from '../tools/index.js'
 import type { McpServer } from '../config.js'
 
 export const VERSION = '0.1.0'
@@ -15,6 +15,7 @@ interface BannerProps {
 export function Banner({ providerName, model, mcpServers = [] }: BannerProps) {
   const modelShort = model.includes('/') ? model.split('/').pop()! : model
   const W = CONTENT_WIDTH
+  const allTools = getAllTools()
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -51,8 +52,20 @@ export function Banner({ providerName, model, mcpServers = [] }: BannerProps) {
       <Box>
         <Text color={t.dim}>│</Text>
         <Text color={t.muted}> tools </Text>
-        <Text color={t.white}>{TOOLS.length}</Text>
-        <Text color={t.dim}>{' ' + '─'.repeat(Math.max(0, W - 20))}</Text>
+        <Text color={t.white}>{allTools.length}</Text>
+        {allTools.length > TOOLS.length && (
+          <>
+            <Text color={t.dim}>{' ('}</Text>
+            <Text color={t.success}>
+              {'+' + (allTools.length - TOOLS.length) + ' external'}
+            </Text>
+            <Text color={t.dim}>{')'}</Text>
+          </>
+        )}
+        <Text color={t.dim}>
+          {' ' +
+            '─'.repeat(Math.max(0, W - 20 - String(allTools.length).length))}
+        </Text>
         <Text color={t.dim}>│</Text>
       </Box>
       {mcpServers.length > 0 && (
@@ -86,32 +99,52 @@ export function Banner({ providerName, model, mcpServers = [] }: BannerProps) {
 
 export function Help() {
   const W = CONTENT_WIDTH
+
   const sections = [
     {
       title: 'Session',
       cmds: [
-        ['/help', 'show help'],
-        ['/clear', 'clear chat'],
-        ['/retry', 'retry last'],
-        ['/save', 'save session'],
-        ['/history', 'view history'],
+        ['/help', 'show this help'],
+        ['/clear', 'clear chat history'],
+        ['/retry', 'retry last message'],
+        ['/save', 'save session to disk'],
+        ['/history', 'view past sessions'],
+        ['/attach <file>', 'attach a file to the conversation'],
         ['/exit', 'quit'],
       ],
     },
     {
-      title: 'Models',
+      title: 'Models & Providers',
       cmds: [
-        ['/models', 'select model'],
-        ['/provider', 'switch provider'],
+        ['/models', 'list & select a model'],
+        ['/model <id>', 'switch to a specific model'],
+        ['/provider <name>', 'switch provider (anthropic / openrouter)'],
+        ['/apikey <p> <key>', 'set an API key for a provider'],
       ],
     },
     {
       title: 'Tools',
       cmds: [
-        ['/tools', 'list tools'],
-        ['/attach', 'attach file'],
-        ['/notes', 'memory'],
-        ['/approve', 'auto-approve'],
+        ['/tools', 'list all available tools'],
+        ['/add <tool>', 'install an external tool from GitHub'],
+        ['/remove <name>', 'uninstall an external tool'],
+        ['/approve', 'toggle auto-approve for tool calls'],
+      ],
+    },
+    {
+      title: 'Memory',
+      cmds: [
+        ['/notes', 'view saved memory'],
+        ['/forget <id>', 'delete a memory entry'],
+      ],
+    },
+    {
+      title: 'Other',
+      cmds: [
+        ['/tokens', 'show token usage'],
+        ['/system [text]', 'view or update system prompt'],
+        ['/accounts', 'list connected MCP accounts'],
+        ['/version', 'show version'],
       ],
     },
   ]
@@ -121,27 +154,36 @@ export function Help() {
       <Box>
         <Text color={t.dim}>┌─ </Text>
         <Text color={t.accent} bold>
-          Help
+          Commands
         </Text>
-        <Text color={t.dim}>{' ' + '─'.repeat(W - 8)}</Text>
+        <Text color={t.dim}>{' ' + '─'.repeat(W - 12)}</Text>
         <Text color={t.dim}>┐</Text>
       </Box>
-      {sections.map((section) => (
-        <Box key={section.title}>
-          <Text color={t.dim}>│</Text>
-          <Text color={t.muted}> {section.title.padEnd(10)}</Text>
-        </Box>
-      ))}
-      {sections.map((section) =>
-        section.cmds.map(([cmd, desc]) => (
-          <Box key={cmd}>
-            <Text color={t.dim}>│</Text>
-            <Text color={t.dim}> </Text>
-            <Text color={t.accent}>{cmd.padEnd(10)}</Text>
-            <Text color={t.white}>{desc}</Text>
+
+      {sections.map((section, si) => (
+        <React.Fragment key={section.title}>
+          {/* Section header — add a blank separator row before each section except the first */}
+          {si > 0 && (
+            <Box>
+              <Text color={t.dim}>{'│'}</Text>
+            </Box>
+          )}
+          <Box>
+            <Text color={t.dim}>│ </Text>
+            <Text color={colors.brandBright} bold>
+              {section.title}
+            </Text>
           </Box>
-        ))
-      )}
+          {section.cmds.map(([cmd, desc]) => (
+            <Box key={cmd}>
+              <Text color={t.dim}>│ </Text>
+              <Text color={t.accent}>{cmd.padEnd(20)}</Text>
+              <Text color={t.muted}>{desc}</Text>
+            </Box>
+          ))}
+        </React.Fragment>
+      ))}
+
       <Box>
         <Text color={t.dim}>└</Text>
         <Text color={t.dim}>{'─'.repeat(W)}</Text>

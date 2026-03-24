@@ -2,14 +2,14 @@ import {
   SAFE_TOOLS,
   executeTool,
   toolLabel,
-  TOOLS as LOCAL_TOOLS,
+  getAllTools,
 } from './tools/index.js'
 import type { Provider, ToolCall, ToolDefinition } from './providers/index.js'
 import type { Config, Message } from './config.js'
 import type { Phase, AgentCallbacks, AgentResult } from './types/agent.js'
 
 function toToolDefs(): ToolDefinition[] {
-  return LOCAL_TOOLS.map((tool) => ({
+  return getAllTools().map((tool) => ({
     name: tool.name,
     description: tool.description ?? '',
     parameters: tool.input_schema as Record<string, unknown>,
@@ -51,14 +51,7 @@ export async function runAgentLoop(
   let inputTokens = 0
   let outputTokens = 0
 
-  let confirmResolveRef: ((ok: boolean) => void) | null = null
-
   const setPhase = (p: Phase) => {
-    if (p.type === 'tool_confirm') {
-      confirmResolveRef = p.onResolve
-    } else {
-      confirmResolveRef = null
-    }
     callbacks?.onPhaseChange?.(p)
   }
 
@@ -75,7 +68,6 @@ export async function runAgentLoop(
 
     let currentText = ''
     const toolCalls: ToolCall[] = []
-
     const streamBuf = { text: '' }
 
     try {
@@ -151,12 +143,11 @@ export async function runAgentLoop(
       }
 
       if (!approved) {
-        approved = await new Promise<boolean>((res) => {
-          confirmResolveRef = res
+        approved = await new Promise<boolean>((resolve) => {
           setPhase({
             type: 'tool_confirm',
             call,
-            onResolve: res,
+            onResolve: resolve,
           })
         })
       }

@@ -1,31 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect } from 'react'
 import { Box, Text } from 'ink'
 import { t, MAX_WIDTH } from './theme.js'
 
 const CODE_W = MAX_WIDTH - 4
-
-function wrapText(text: string, maxWidth: number): string[] {
-  const lines: string[] = []
-  const paragraphs = text.split('\n')
-  for (const para of paragraphs) {
-    if (para.length <= maxWidth) {
-      lines.push(para)
-    } else {
-      const words = para.split(' ')
-      let current = ''
-      for (const word of words) {
-        if ((current + ' ' + word).trim().length <= maxWidth) {
-          current = (current + ' ' + word).trim()
-        } else {
-          if (current) lines.push(current)
-          current = word
-        }
-      }
-      if (current) lines.push(current)
-    }
-  }
-  return lines
-}
 
 interface Segment {
   text: string
@@ -254,21 +231,4 @@ export function MarkdownView({ text }: { text: string }) {
       )}
     </Box>
   )
-}
-
-export function useStreamRenderer() {
-  const [text, setText] = useState('')
-  const buf = useRef('')
-
-  const feed = (delta: string) => {
-    buf.current += delta
-    setText(buf.current)
-  }
-
-  const reset = () => {
-    buf.current = ''
-    setText('')
-  }
-
-  return { text, feed, reset }
 }

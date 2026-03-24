@@ -1,168 +1,334 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import * as child_process from 'child_process'
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+/**
+ * How an external tool runs.
+ * `shell` — executes a command string with inputs substituted as ${input.field}.
+ *
+ * Example executor in tool.json:
+ *   "executor": { "type": "shell", "command": "curl -s 'wttr.in/${input.city}?format=3'" }
+ */
+export interface ToolExecutor {
+  type: 'shell'
+  /** Shell command template. Use ${input.<field>} to substitute tool inputs. */
+  command: string
+}
+
+/** A single entry persisted in registry.json */
 export interface ExternalTool {
   name: string
   description: string
   source: string
-  installedAt?: string
+  version: string
+  installedAt: string
+  input_schema: Record<string, unknown>
+  executor?: ToolExecutor
 }
 
+/** A single tool entry inside a remote tool.json manifest */
+interface ManifestTool {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+  executor?: ToolExecutor
+}
+
+/** Shape of tool.json in external repos */
 interface ToolManifest {
   name: string
   version: string
   description: string
-  tools: {
-    name: string
-    description: string
-    input_schema: Record<string, unknown>
-  }[]
+  tools: ManifestTool[]
 }
 
-const EXTERNAL_TOOLS_DIR = path.join(os.homedir(), '.opensage', 'tools')
-const REGISTRY_FILE = path.join(EXTERNAL_TOOLS_DIR, 'registry.json')
+// ─── Paths ────────────────────────────────────────────────────────────────────
 
-function ensureToolsDir(): void {
-  if (!fs.existsSync(EXTERNAL_TOOLS_DIR)) {
-    fs.mkdirSync(EXTERNAL_TOOLS_DIR, { recursive: true })
+const TOOLS_DIR = path.join(os.homedir(), '.opensage', 'tools')
+const REGISTRY_FILE = path.join(TOOLS_DIR, 'registry.json')
+const REGISTRY_TMP = REGISTRY_FILE + '.tmp'
+
+// ─── Validation ───────────────────────────────────────────────────────────────
+
+function isValidManifest(data: unknown): data is ToolManifest {
+  if (!data || typeof data !== 'object') return false
+  const d = data as Record<string, unknown>
+
+  if (typeof d['name'] !== 'string' || !d['name'].trim()) return false
+  if (!Array.isArray(d['tools'])) return false
+
+  for (const raw of d['tools']) {
+    if (!raw || typeof raw !== 'object') return false
+    const t = raw as Record<string, unknown>
+    if (typeof t['name'] !== 'string' || !t['name'].trim()) return false
+    if (typeof t['description'] !== 'string') return false
+    if (!t['input_schema'] || typeof t['input_schema'] !== 'object')
+      return false
+
+    // Validate executor if present
+    if (t['executor'] !== undefined) {
+      const exec = t['executor'] as Record<string, unknown>
+      if (exec['type'] !== 'shell') return false
+      if (typeof exec['command'] !== 'string' || !exec['command'].trim())
+        return false
+    }
   }
+
+  return true
 }
 
-function getRegistry(): ExternalTool[] {
-  ensureToolsDir()
-  if (!fs.existsSync(REGISTRY_FILE)) {
-    return []
-  }
+/** Sanitise a raw tool name to a safe identifier (letters, digits, underscores, hyphens only). */
+function sanitiseName(raw: string): string {
+  return raw.trim().replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+// ─── Storage (atomic) ─────────────────────────────────────────────────────────
+
+function ensureDir(): void {
+  fs.mkdirSync(TOOLS_DIR, { recursive: true })
+}
+
+function readRegistry(): ExternalTool[] {
+  ensureDir()
+  if (!fs.existsSync(REGISTRY_FILE)) return []
   try {
-    return JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf-8'))
+    const parsed: unknown = JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf-8'))
+    return Array.isArray(parsed) ? (parsed as ExternalTool[]) : []
   } catch {
     return []
   }
 }
 
-function saveRegistry(registry: ExternalTool[]): void {
-  ensureToolsDir()
-  fs.writeFileSync(REGISTRY_FILE, JSON.stringify(registry, null, 2))
+/**
+ * Atomic write: serialise to a .tmp file first, then rename into place.
+ * This prevents partial/corrupt writes if the process dies mid-write.
+ */
+function writeRegistry(registry: ExternalTool[]): void {
+  ensureDir()
+  try {
+    fs.writeFileSync(REGISTRY_TMP, JSON.stringify(registry, null, 2), 'utf-8')
+    fs.renameSync(REGISTRY_TMP, REGISTRY_FILE)
+  } catch (err) {
+    // Best-effort cleanup of the temp file before re-throwing
+    try {
+      fs.unlinkSync(REGISTRY_TMP)
+    } catch {
+      /* ignore */
+    }
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`Registry write failed: ${msg}`)
+  }
 }
 
+// ─── Manifest fetching ────────────────────────────────────────────────────────
+
+/**
+ * Fetch and validate a tool.json manifest from a GitHub repo.
+ * Tries `main` first, then falls back to `master`.
+ */
 export async function fetchToolManifest(
   repo: string
 ): Promise<ToolManifest | null> {
-  const url = `https://raw.githubusercontent.com/${repo}/main/tool.json`
-  try {
-    const response = await fetch(url)
-    if (!response.ok) return null
-    return await response.json()
-  } catch {
-    return null
+  // Normalise: strip protocol and trailing .git
+  const clean = repo
+    .replace(/^https?:\/\/github\.com\//, '')
+    .replace(/\.git$/, '')
+    .trim()
+
+  const branches = ['main', 'master']
+
+  for (const branch of branches) {
+    const url = `https://raw.githubusercontent.com/${clean}/${branch}/tool.json`
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (!response.ok) continue
+
+      const data: unknown = await response.json()
+
+      if (!isValidManifest(data)) {
+        // Manifest exists but is malformed — don't try master if main was found
+        return null
+      }
+
+      return data
+    } catch (err) {
+      // Timeout or network error — try next branch
+      if (err instanceof Error && err.name === 'TimeoutError') continue
+      continue
+    }
   }
+
+  return null
 }
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+export function listExternalTools(): ExternalTool[] {
+  return readRegistry()
+}
+
+export function loadExternalTool(name: string): ExternalTool | null {
+  return readRegistry().find((t) => t.name === name) ?? null
+}
+
+export function getExternalToolsDir(): string {
+  return TOOLS_DIR
+}
+
+// ─── Install ──────────────────────────────────────────────────────────────────
 
 export async function installTool(
   repo: string,
   toolName?: string
 ): Promise<{ success: boolean; message: string; installed?: string[] }> {
-  ensureToolsDir()
-
   const manifest = await fetchToolManifest(repo)
+
   if (!manifest) {
     return {
       success: false,
-      message: `Could not fetch tool manifest from ${repo}. Make sure the repository exists and has a tool.json file.`,
+      message: `Could not fetch a valid tool.json from "${repo}". Check that the repo exists and its tool.json is valid.`,
     }
   }
 
-  const toolsToInstall = toolName
+  const candidates = toolName
     ? manifest.tools.filter((t) => t.name === toolName)
     : manifest.tools
 
-  if (toolsToInstall.length === 0) {
+  if (candidates.length === 0) {
     return {
       success: false,
       message: toolName
-        ? `Tool "${toolName}" not found in ${repo}`
-        : 'No tools found in manifest',
+        ? `Tool "${toolName}" was not found in ${repo}.`
+        : `No tools are defined in the manifest for ${repo}.`,
     }
   }
 
+  const registry = readRegistry()
   const installed: string[] = []
-  const registry = getRegistry()
+  const now = new Date().toISOString()
 
-  for (const tool of toolsToInstall) {
-    const toolDir = path.join(EXTERNAL_TOOLS_DIR, tool.name)
-    if (!fs.existsSync(toolDir)) {
-      fs.mkdirSync(toolDir, { recursive: true })
+  for (const tool of candidates) {
+    const safeName = sanitiseName(tool.name)
+    if (!safeName) continue
+
+    const entry: ExternalTool = {
+      name: safeName,
+      description: tool.description,
+      source: repo,
+      version: manifest.version ?? '0.0.0',
+      installedAt: now,
+      input_schema: tool.input_schema,
+      ...(tool.executor ? { executor: tool.executor } : {}),
     }
 
-    const toolFile = path.join(toolDir, 'index.js')
-    const wrapperCode = `// Auto-generated wrapper for ${tool.name}
-// Source: ${repo}
-module.exports = {
-  name: '${tool.name}',
-  description: '${tool.description}',
-  input_schema: ${JSON.stringify(tool.input_schema)},
-  execute: async function(input) {
-    // Placeholder - actual implementation would come from the tool source
-    return JSON.stringify({ status: 'ok', tool: '${tool.name}', input });
-  }
-};
-`
-    fs.writeFileSync(toolFile, wrapperCode)
-
-    const existing = registry.find((t) => t.name === tool.name)
-    if (existing) {
-      existing.source = repo
-      existing.installedAt = new Date().toISOString()
+    const existingIdx = registry.findIndex((t) => t.name === safeName)
+    if (existingIdx >= 0) {
+      // Update in place (re-install / upgrade)
+      registry[existingIdx] = entry
     } else {
-      registry.push({
-        name: tool.name,
-        description: tool.description,
-        source: repo,
-        installedAt: new Date().toISOString(),
-      })
+      registry.push(entry)
     }
-    installed.push(tool.name)
+
+    installed.push(safeName)
   }
 
-  saveRegistry(registry)
+  try {
+    writeRegistry(registry)
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : String(err),
+    }
+  }
 
+  const noun = installed.length === 1 ? 'tool' : 'tools'
   return {
     success: true,
-    message: `Installed ${installed.length} tool(s): ${installed.join(', ')}`,
+    message: `Installed ${installed.length} ${noun}: ${installed.join(', ')}`,
     installed,
   }
 }
 
-export function listExternalTools(): ExternalTool[] {
-  return getRegistry()
-}
+// ─── Remove ───────────────────────────────────────────────────────────────────
 
 export function removeTool(toolName: string): boolean {
-  const registry = getRegistry()
-  const index = registry.findIndex((t) => t.name === toolName)
-  if (index === -1) return false
+  const registry = readRegistry()
+  const idx = registry.findIndex((t) => t.name === toolName)
+  if (idx === -1) return false
 
-  const toolDir = path.join(EXTERNAL_TOOLS_DIR, toolName)
-  if (fs.existsSync(toolDir)) {
-    fs.rmSync(toolDir, { recursive: true })
-  }
+  registry.splice(idx, 1)
 
-  registry.splice(index, 1)
-  saveRegistry(registry)
-  return true
-}
-
-export function loadExternalTool(name: string): unknown | null {
-  const toolDir = path.join(EXTERNAL_TOOLS_DIR, name, 'index.js')
-  if (!fs.existsSync(toolDir)) return null
   try {
-    return require(toolDir)
+    writeRegistry(registry)
+    return true
   } catch {
-    return null
+    return false
   }
 }
 
-export function getExternalToolsDir(): string {
-  return EXTERNAL_TOOLS_DIR
+// ─── Execution ────────────────────────────────────────────────────────────────
+
+/**
+ * Execute an installed external tool with the given input.
+ *
+ * Currently supports `shell` executors only.
+ * Shell commands are template strings with ${input.<field>} substitutions.
+ * All substituted values are single-quote escaped to prevent injection.
+ */
+export async function executeExternalTool(
+  tool: ExternalTool,
+  input: Record<string, unknown>
+): Promise<string> {
+  if (!tool.executor) {
+    return (
+      `Error: Tool "${tool.name}" has no executor. ` +
+      `Reinstall it from a repo that provides an executor in tool.json.`
+    )
+  }
+
+  if (tool.executor.type === 'shell') {
+    const command = interpolateCommand(tool.executor.command, input)
+    return runShellCommand(command)
+  }
+
+  return `Error: Unknown executor type "${(tool.executor as { type: string }).type}".`
+}
+
+/**
+ * Replace ${input.<field>} placeholders in a shell command template.
+ * Values are shell-escaped with single quotes to prevent injection.
+ */
+function interpolateCommand(
+  template: string,
+  input: Record<string, unknown>
+): string {
+  return template.replace(/\$\{input\.(\w+)\}/g, (match, key: string) => {
+    const val = input[key]
+    if (val === undefined || val === null) return ''
+    // Wrap in single quotes and escape any embedded single quotes
+    const escaped = String(val).replace(/'/g, "'\\''")
+    return `'${escaped}'`
+  })
+}
+
+function runShellCommand(command: string): Promise<string> {
+  return new Promise((resolve) => {
+    child_process.exec(
+      command,
+      { timeout: 30_000, maxBuffer: 1024 * 512 },
+      (err, stdout, stderr) => {
+        if (err) {
+          const detail = (stderr?.trim() || err.message).slice(0, 500)
+          resolve(`Error: ${detail}`)
+        } else {
+          resolve(stdout.trim() || '(no output)')
+        }
+      }
+    )
+  })
 }

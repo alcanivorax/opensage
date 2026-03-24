@@ -6,6 +6,13 @@ import type {
   ChatParams,
 } from './types.js'
 
+type StreamResult = AsyncIterable<Record<string, unknown>> & {
+  finalMessage(): Promise<{
+    usage: { input_tokens: number; output_tokens: number }
+    stop_reason: string | null
+  }>
+}
+
 export class AnthropicProvider implements Provider {
   name = 'Anthropic'
   supportsMcp = true
@@ -16,97 +23,68 @@ export class AnthropicProvider implements Provider {
     this.client = new Anthropic({ apiKey })
   }
 
-  // ─── Shared request builder ───────────────────────────────────────────────
-
-  private buildRequest(params: ChatParams): Record<string, unknown> {
+  private buildRequest(
+    params: ChatParams
+  ): Anthropic.MessageCreateParamsNonStreaming {
     const anthropicTools: Anthropic.Tool[] = params.tools.map((t) => ({
       name: t.name,
       description: t.description,
       input_schema: t.parameters as Anthropic.Tool['input_schema'],
     }))
 
-    const request: Record<string, unknown> = {
+    return {
       model: params.model,
       max_tokens: params.maxTokens,
       system: params.system,
       tools: anthropicTools,
-      messages: params.messages,
+      messages: params.messages as Anthropic.MessageParam[],
     }
-
-    if (params.mcpServers.length > 0) {
-      request['mcp_servers'] = params.mcpServers.map((s) => ({
-        type: 'url',
-        url: s.url,
-        name: s.name,
-      }))
-      request['tool_choice'] = { type: 'auto' }
-    }
-
-    return request
   }
-
-  // ─── Non-streaming ────────────────────────────────────────────────────────
 
   async chat(params: ChatParams): Promise<ProviderResponse> {
     const request = this.buildRequest(params)
-    const response = await (this.client.messages.create as any)(request)
+    const response = await this.client.messages.create(request)
 
     const textBlocks: string[] = []
     const toolCalls: ProviderResponse['toolCalls'] = []
 
-    for (const block of response.content as Array<Record<string, unknown>>) {
-      if (block['type'] === 'text' && block['text']) {
-        textBlocks.push(block['text'] as string)
-      } else if (block['type'] === 'tool_use') {
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        textBlocks.push(block.text)
+      } else if (block.type === 'tool_use') {
         toolCalls.push({
-          id: block['id'] as string,
-          name: block['name'] as string,
-          input: block['input'] as Record<string, unknown>,
+          id: block.id,
+          name: block.name,
+          input: block.input as Record<string, unknown>,
           isMcp: false,
         })
-      } else if (block['type'] === 'mcp_tool_use') {
-        toolCalls.push({
-          id: block['id'] as string,
-          name: block['name'] as string,
-          input: block['input'] as Record<string, unknown>,
-          isMcp: true,
-        })
       }
-    }
-
-    const usage = response.usage as {
-      input_tokens: number
-      output_tokens: number
     }
 
     return {
       textBlocks,
       toolCalls,
-      inputTokens: usage.input_tokens,
-      outputTokens: usage.output_tokens,
-      stopReason: (response.stop_reason as string) ?? 'end_turn',
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      stopReason: response.stop_reason ?? 'end_turn',
     }
   }
-
-  // ─── Streaming ────────────────────────────────────────────────────────────
 
   async *stream(
     params: ChatParams
   ): AsyncGenerator<StreamEvent, void, undefined> {
     const request = this.buildRequest(params)
+    const streamResponse = await this.client.messages.create({
+      ...request,
+      stream: true,
+    })
 
-    // messages.stream() returns a MessageStream (async iterable of raw SSE events)
-    const messageStream = (this.client.messages as any).stream(request)
+    const messageStream = streamResponse as unknown as StreamResult
 
-    // Accumulate tool-call inputs as JSON deltas arrive
-    const pending: Record<
-      number,
-      { id: string; name: string; json: string; isMcp: boolean }
-    > = {}
+    const pending: Record<number, { id: string; name: string; json: string }> =
+      {}
 
-    for await (const event of messageStream as AsyncIterable<
-      Record<string, unknown>
-    >) {
+    for await (const event of messageStream) {
       const eventType = event['type'] as string
 
       switch (eventType) {
@@ -115,17 +93,16 @@ export class AnthropicProvider implements Provider {
           const idx = event['index'] as number
           const btype = block['type'] as string
 
-          if (btype === 'tool_use' || btype === 'mcp_tool_use') {
+          if (btype === 'tool_use') {
             pending[idx] = {
               id: block['id'] as string,
               name: block['name'] as string,
               json: '',
-              isMcp: btype === 'mcp_tool_use',
             }
             yield {
               type: 'tool_start',
-              id: pending[idx].id,
-              name: pending[idx].name,
+              id: block['id'] as string,
+              name: block['name'] as string,
             }
           }
           break
@@ -142,7 +119,7 @@ export class AnthropicProvider implements Provider {
             dtype === 'input_json_delta' &&
             pending[idx] !== undefined
           ) {
-            pending[idx].json += (delta['partial_json'] as string) ?? ''
+            pending[idx].json += delta['partial_json'] as string
           }
           break
         }
@@ -155,14 +132,16 @@ export class AnthropicProvider implements Provider {
             try {
               input = JSON.parse(pt.json || '{}') as Record<string, unknown>
             } catch {
-              // malformed JSON — keep empty object
+              console.warn(
+                `[opensage] Failed to parse tool input for ${pt.name}`
+              )
             }
             yield {
               type: 'tool_done',
               id: pt.id,
               name: pt.name,
               input,
-              isMcp: pt.isMcp,
+              isMcp: false,
             }
             delete pending[idx]
           }
@@ -174,11 +153,7 @@ export class AnthropicProvider implements Provider {
       }
     }
 
-    // finalMessage() resolves after the stream is fully consumed
-    const final = (await (messageStream as any).finalMessage()) as {
-      usage: { input_tokens: number; output_tokens: number }
-      stop_reason: string | null
-    }
+    const final = await messageStream.finalMessage()
 
     yield {
       type: 'end',

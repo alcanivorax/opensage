@@ -9,44 +9,67 @@ import {
   ConfirmDialog,
 } from './components/index.js'
 import { MarkdownView } from './render.js'
+import { COMPACT_TOOLS } from '../tools/index.js'
 import type { Phase } from '../types/agent.js'
 import type { ToolCall } from '../providers/index.js'
 
-function buildConfirmDetails(
-  call: ToolCall,
-  _sensitiveTools: string[]
-): Record<string, string> {
+// ─── Confirm-dialog detail builders ──────────────────────────────────────────
+
+/**
+ * Extract the most relevant fields from a tool call to show in the
+ * confirmation dialog. Returns a flat key→value map.
+ */
+function buildConfirmDetails(call: ToolCall): Record<string, string> {
   const { name, input } = call
 
-  if (
-    ['send_email', 'create_draft', 'reply_to_email', 'forward_email'].includes(
-      name
-    )
-  ) {
+  // Gmail write actions (built-in tools)
+  if (name === 'gmail_send' || name === 'gmail_draft') {
     const details: Record<string, string> = {}
     if (input['to']) details['To'] = String(input['to'])
     if (input['subject']) details['Subject'] = String(input['subject'])
     const body = String(input['body'] ?? input['message'] ?? '')
-    if (body)
-      details['Body'] =
-        body.split('\n')[0].slice(0, 50) + (body.includes('\n') ? '…' : '')
+    if (body) {
+      const firstLine = body.split('\n')[0].slice(0, 60)
+      details['Body'] = firstLine + (body.includes('\n') ? '…' : '')
+    }
     return details
   }
-  if (['create_event', 'update_event'].includes(name)) {
+
+  // File system mutations
+  if (name === 'write_file') {
+    return { File: String(input['path'] ?? '') }
+  }
+  if (name === 'run_command') {
+    return { Command: String(input['command'] ?? '').slice(0, 80) }
+  }
+  if (name === 'download_file') {
+    return { URL: String(input['url'] ?? '').slice(0, 80) }
+  }
+
+  // Clipboard write
+  if (name === 'write_clipboard') {
+    return { Text: String(input['text'] ?? '').slice(0, 60) }
+  }
+
+  // MCP calendar tools (kept for compatibility if MCP servers are added)
+  if (name === 'create_event' || name === 'update_event') {
     const details: Record<string, string> = {}
-    if (input['title'] ?? input['summary'])
-      details['Title'] = String(input['title'] ?? input['summary'])
+    const title = input['title'] ?? input['summary']
+    if (title) details['Title'] = String(title)
     if (input['start']) details['Start'] = String(input['start'])
     return details
   }
-  if (name === 'write_file') return { File: String(input['path'] ?? '') }
-  if (name === 'run_command')
-    return { Command: String(input['command'] ?? '').slice(0, 60) }
+
+  // For any other tool that requires confirmation, show the first input field
+  const firstKey = Object.keys(input)[0]
+  if (firstKey) {
+    return { [firstKey]: String(input[firstKey]).slice(0, 80) }
+  }
 
   return {}
 }
 
-const COMPACT_TOOLS = new Set(['web_search', 'web_fetch', 'read_file'])
+// ─── AgentUI ──────────────────────────────────────────────────────────────────
 
 interface AgentUIProps {
   phase: Phase
@@ -64,13 +87,12 @@ export function AgentUI({
   onConfirm,
 }: AgentUIProps) {
   useInput((input) => {
-    if (phase.type === 'tool_confirm') {
-      const ans = input.trim().toLowerCase()
-      if (['y', 'yes', ''].includes(ans) || input === '\r') {
-        onConfirm(true)
-      } else if (['n', 'no'].includes(ans)) {
-        onConfirm(false)
-      }
+    if (phase.type !== 'tool_confirm') return
+    const ans = input.trim().toLowerCase()
+    if (['y', 'yes', ''].includes(ans) || input === '\r') {
+      onConfirm(true)
+    } else if (['n', 'no'].includes(ans)) {
+      onConfirm(false)
     }
   })
 
@@ -99,7 +121,7 @@ export function AgentUI({
               <ToolCallBox call={phase.call} status="pending" />
               <ConfirmDialog
                 name={phase.call.name}
-                details={buildConfirmDetails(phase.call, [])}
+                details={buildConfirmDetails(phase.call)}
                 sensitive={false}
               />
             </Box>
@@ -115,10 +137,10 @@ export function AgentUI({
             </Box>
           )}
 
-          {(phase.type === 'streaming' ||
-            phase.type === 'done' ||
-            streamText) &&
-            streamText.length > 0 && (
+          {streamText.length > 0 &&
+            (phase.type === 'streaming' ||
+              phase.type === 'done' ||
+              phase.type === 'thinking') && (
               <Box marginTop={1}>
                 <MarkdownView text={streamText} />
               </Box>

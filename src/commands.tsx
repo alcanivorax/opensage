@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import * as readline from 'readline'
+
 import * as child_process from 'child_process'
 import React from 'react'
 import { Box, Text } from 'ink'
@@ -100,20 +100,6 @@ function Warn({ msg }: { msg: string }) {
       <Text color={t.warn}>{'  ⚠  '}</Text>
       <Text color={t.white}>{msg}</Text>
     </Box>
-  )
-}
-
-function makeTempRl(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: true,
-  })
-}
-
-function askLine(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise((resolve) =>
-    rl.question(prompt, (ans) => resolve(ans.trim()))
   )
 }
 
@@ -847,13 +833,17 @@ export async function handleCommand(
       )
 
     case '/add': {
+      const DEFAULT_REPO = 'alcanivorax/opensage-tools'
+
       if (!arg) {
         return out(
           <Box flexDirection="column">
             <SectionTitle title="Add External Tools" />
             <Box marginTop={1} marginLeft={2} flexDirection="column">
-              <Text color={t.white}>
-                {'Download tools from GitHub repositories.'}
+              <Text color={t.white}>{'Install tools from GitHub.'}</Text>
+              <Text color={t.muted}>
+                {'Default repo: '}
+                <Text color={t.accent}>{DEFAULT_REPO}</Text>
               </Text>
               <Text color={t.muted}>
                 {'Tools are stored in ~/.opensage/tools'}
@@ -864,12 +854,15 @@ export async function handleCommand(
                 <Text color={t.accent}>{'Usage:'}</Text>
               </Box>
               <Box marginLeft={2}>
-                <Text color={t.muted}>{'/add <repo>'}</Text>
+                <Text color={t.muted}>{'/add <tool>'}</Text>
+                <Text color={t.dim}> (from default repo)</Text>
               </Box>
               <Box marginLeft={2}>
-                <Text color={t.muted}>
-                  {'  Example: /add alquivorax/opensage-tools'}
-                </Text>
+                <Text color={t.muted}>{'/add <repo> <tool>'}</Text>
+                <Text color={t.dim}> (from custom repo)</Text>
+              </Box>
+              <Box marginLeft={2} marginTop={1}>
+                <Text color={t.muted}>{'Example: /add filesystem'}</Text>
               </Box>
               <Box marginTop={1}>
                 <Text color={t.accent}>{'Installed tools:'}</Text>
@@ -904,11 +897,15 @@ export async function handleCommand(
       }
 
       const parts = arg.split(' ')
-      const repo = parts[0]
-      const toolName = parts[1]
+      let repo: string
+      let toolName: string | undefined
 
-      if (!repo.includes('/')) {
-        return out(<Err msg={'Invalid repo format. Use: owner/repo'} />)
+      if (parts[0].includes('/')) {
+        repo = parts[0]
+        toolName = parts[1]
+      } else {
+        repo = DEFAULT_REPO
+        toolName = parts[0]
       }
 
       try {
@@ -925,10 +922,10 @@ export async function handleCommand(
               {installed.length > 0 && (
                 <Box marginTop={1} marginLeft={2} flexDirection="column">
                   <Text color={t.muted}>{'Installed tools:'}</Text>
-                  {installed.map((toolName) => (
-                    <Box key={toolName} marginLeft={2}>
+                  {installed.map((installedName) => (
+                    <Box key={installedName} marginLeft={2}>
                       <Text color={t.success}>{'✓ '}</Text>
-                      <Text color={t.white}>{toolName}</Text>
+                      <Text color={t.white}>{installedName}</Text>
                     </Box>
                   ))}
                 </Box>

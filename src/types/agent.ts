@@ -11,7 +11,6 @@ export type Phase =
   | { type: 'streaming'; text: string }
   | { type: 'tool_confirm'; call: ToolCall; onResolve: (ok: boolean) => void }
   | { type: 'tool_running'; call: ToolCall; action: string }
-  | { type: 'tool_result'; call: ToolCall; result: string; elapsed: number }
   | {
       type: 'done'
       inputTokens: number
@@ -28,5 +27,4 @@ export interface AgentCallbacks {
     result: string
     elapsed: number
   }) => void
-  showStreamText?: boolean
 }
